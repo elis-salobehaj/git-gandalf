@@ -56,7 +56,9 @@ completion:
   - [x] 1.14 `src/gitlab-client/client.ts`
   - "# Phase 2 — Agent Tools & Context Engine"
   - [x] 2.1 `src/context/repo-manager.ts`
-  - [x] 2.2 `src/context/tools.ts`
+  - [x] 2.2 `src/context/tools.ts` (monolith, superseded by Phase 2.5)
+  - "# Phase 2.5 — Tool Modularization"
+  - [x] 2.5 Split `src/context/tools.ts` into `src/context/tools/` per-tool modules
   - "# Phase 3 — Multi-Agent Orchestration"
   - [ ] 3.1 `src/agents/state.ts`
   - [ ] 3.2 `src/agents/llm-client.ts`
@@ -160,7 +162,12 @@ git-gandalf/
 │   │   └── types.ts                # TypeScript types for GitLab data (MRDetails, DiffFile, etc.)
 │   ├── context/
 │   │   ├── repo-manager.ts         # Clone/cache repos via Bun.spawn + git CLI
-│   │   └── tools.ts                # Agent tools: read_file, search_codebase, get_directory_structure
+│   │   └── tools/                  # Agent tools — one file per tool
+│   │       ├── index.ts            # Aggregates TOOL_DEFINITIONS[], exports executeTool()
+│   │       ├── shared.ts           # SearchResult type + assertInsideRepo() guard
+│   │       ├── read-file.ts        # read_file tool definition + implementation
+│   │       ├── search-codebase.ts  # search_codebase tool definition + implementation
+│   │       └── get-directory-structure.ts  # get_directory_structure tool definition + implementation
 │   ├── agents/
 │   │   ├── orchestrator.ts         # Custom state-machine pipeline (runReview entrypoint)
 │   │   ├── state.ts                # ReviewState type + Finding type definitions
@@ -399,80 +406,39 @@ export class RepoManager {
 }
 ```
 
-#### [DONE] `src/context/tools.ts`
-- Agent tools as plain functions + JSON schema descriptors for the LLM:
+#### [DONE] `src/context/tools.ts` → superseded by Phase 2.5
 
-| Tool | Signature | Description |
-|---|---|---|
-| `read_file` | `(path: string) → string` | Read a file's contents from the cloned repo. Returns up to 500 lines with line numbers. Path is relative to repo root. |
-| `search_codebase` | `(query: string, fileGlob?: string) → SearchResult[]` | Search using `ripgrep` via `Bun.spawn()`. Returns file, line number, and matching line. Capped at `config.MAX_SEARCH_RESULTS` (default 100). |
-| `get_directory_structure` | `(path?: string) → string` | Tree-style directory listing (max depth 3). Ignores `node_modules`, `.git`, `__pycache__`, `dist`, etc. |
+Originally a monolith; refactored into `src/context/tools/` in Phase 2.5. See that section for the
+full implementation description. All existing tool behaviors and the public import path are unchanged.
 
-```typescript
-// Tool definitions for the LLM (Anthropic tool_use format)
-export const TOOL_DEFINITIONS = [
-  {
-    name: 'read_file',
-    description: 'Read a file from the repository. Path is relative to the repo root. Returns contents with line numbers.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        path: { type: 'string', description: 'File path relative to repo root' },
-      },
-      required: ['path'],
-    },
-  },
-  // ... search_codebase, get_directory_structure
-];
+---
 
-// Tool implementations
-export async function readFile(repoPath: string, filePath: string): Promise<string> {
-  const resolved = path.resolve(repoPath, filePath);
-  if (!resolved.startsWith(path.resolve(repoPath))) {
-    throw new Error('Path traversal attempt blocked');
-  }
-  const content = await Bun.file(resolved).text();
-  return content.split('\n').slice(0, 500)
-    .map((line, i) => `${i + 1}: ${line}`).join('\n');
-}
+## Phase 2.5: Tool Modularization
 
-export async function searchCodebase(
-  repoPath: string, query: string, fileGlob = '*'
-): Promise<SearchResult[]> {
-  const proc = Bun.spawn(
-    ['rg', '--json', '--max-count', '30', '-g', fileGlob, query, '.'],
-    { cwd: repoPath, stdout: 'pipe', stderr: 'pipe' }
-  );
-  const output = await new Response(proc.stdout).text();
-  return parseRipgrepJsonOutput(output);
-}
+### Goal
+Split the monolithic `src/context/tools.ts` into one file per tool so each tool
+is independently testable, importable, and easy to extend. Sets the convention
+for all future tool additions.
 
-export async function getDirectoryStructure(
-  repoPath: string, subPath = '.'
-): Promise<string> {
-  const resolved = path.resolve(repoPath, subPath);
-  if (!resolved.startsWith(path.resolve(repoPath))) {
-    throw new Error('Path traversal attempt blocked');
-  }
-  // Recursive readdir with depth limit of 3, ignoring .git, node_modules, etc.
-  return buildTreeString(resolved, 3);
-}
+---
 
-// Tool executor — dispatches tool_use blocks to implementations
-export async function executeTool(
-  repoPath: string, toolName: string, toolInput: Record<string, unknown>
-): Promise<string> {
-  switch (toolName) {
-    case 'read_file': return readFile(repoPath, toolInput.path as string);
-    case 'search_codebase': return searchCodebase(repoPath, toolInput.query as string, toolInput.file_glob as string);
-    case 'get_directory_structure': return getDirectoryStructure(repoPath, toolInput.path as string);
-    default: return `Unknown tool: ${toolName}`;
-  }
-}
-```
+#### [DONE] `src/context/tools/` — Per-tool module split
 
-> [!IMPORTANT]
-> **Security**: All tool paths are sandboxed to the cloned repo directory via `path.resolve()` + prefix check. Path traversal attempts (e.g., `../../etc/passwd`) are rejected with an error.
+| File | Purpose |
+|---|---|
+| `shared.ts` | `SearchResult` interface and `assertInsideRepo()` path-traversal guard shared across tools |
+| `read-file.ts` | `read_file` Anthropic tool definition, Zod `inputSchema`, and `readFile()` implementation |
+| `search-codebase.ts` | `search_codebase` definition, `inputSchema`, `searchCodebase()`, and ripgrep NDJSON parser |
+| `get-directory-structure.ts` | `get_directory_structure` definition, `inputSchema`, `getDirectoryStructure()`, `IGNORED_DIRS`, and `buildTree()` |
+| `index.ts` | Public API barrel: aggregates `TOOL_DEFINITIONS[]`, hosts `executeTool()` dispatcher, re-exports all public symbols |
+
+**Adding a new tool** (pattern for Phase 3+):
+1. Create `src/context/tools/<tool-name>.ts` with `toolDefinition`, `inputSchema`, and the implementation function.
+2. Import and add `toolDefinition` to `TOOL_DEFINITIONS` in `index.ts`.
+3. Add a `case` to `executeTool()` in `index.ts`.
+4. Add tests to `tests/tools.test.ts`.
+
+**Import path unchanged**: all consumers continue to `import { ... } from "../context/tools"` — `moduleResolution: bundler` transparently routes this to `tools/index.ts`.
 
 ---
 
