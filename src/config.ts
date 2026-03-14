@@ -9,6 +9,7 @@ const envSchema = z.object({
   AWS_AUTH_SCHEME_PREFERENCE: z.string().default("smithy.api#httpBearerAuth"),
   LLM_MODEL: z.string().default("global.anthropic.claude-sonnet-4-6"),
   MAX_TOOL_ITERATIONS: z.coerce.number().int().positive().default(15),
+  MAX_SEARCH_RESULTS: z.coerce.number().int().positive().default(100),
   REPO_CACHE_DIR: z.string().default("/tmp/repo_cache"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   PORT: z.coerce.number().int().positive().default(8000),

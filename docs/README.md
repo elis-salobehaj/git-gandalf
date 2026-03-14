@@ -31,7 +31,7 @@ Detailed, visual documentation with Mermaid diagrams and full rationale.
 | Phase | Status | Summary |
 |---|---|---|
 | **Phase 1** | ✅ Complete | Hono server, Zod webhook parsing, GitLab client, 15 tests |
-| **Phase 2** | 🔜 Next | Agent tools & context engine (repo clone, file/search tools) |
+| **Phase 2** | ✅ Complete | Agent tools & context engine (repo clone, file/search tools), 39 tests |
 | **Phase 3** | ⬜ Planned | Multi-agent pipeline (context, investigator, reflection agents) |
 | **Phase 4** | ⬜ Planned | GitLab publisher (inline comments, summary comment) |
 | **Phase 5** | ⬜ Planned | Hardening, BullMQ queue, Docker Compose |

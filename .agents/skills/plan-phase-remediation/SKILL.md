@@ -25,7 +25,7 @@ Produce and execute a remediation plan that:
 - begins with a high-level holistic overview of the findings and recommendations so a human can quickly digest the current state
 - groups findings into coherent workstreams and orders fixes by dependency and risk
 - includes code, tests, docs, and plan-tracking updates required for closure
-- is saved as a Markdown file under `docs/plans/review-reports`
+- is saved as a Markdown file under [review-reports](../../../docs/plans/review-reports)
 - is then automatically executed by the agent without waiting for explicit human approval
 
 ## When To Use
@@ -76,7 +76,14 @@ Before planning remediation, gather:
    If any finding implies a design change, scope reduction, or plan deviation, mark it for human confirmation before implementation.
 
 7. Save the plan and execute.
-   Deliver the ordered remediation plan by writing it to a file under `docs/plans/review-reports/<report-name>.md`. Once saved, immediately continue with implementing the `[agent]` remediation steps without waiting for human approval.
+   You **must** write the remediation plan to disk before doing anything else.
+   Use your file-creation tool to create `docs/plans/review-reports/<phase>-remediation-<YYYY-MM-DD>.md`
+   (e.g. `docs/plans/review-reports/phase-2-remediation-2026-03-14.md`).
+   Do **not** deliver the plan only as chat output — the file must exist on disk so it is
+   tracked in the repository alongside the plan it remediates.
+   Create the `docs/plans/review-reports/` directory if it does not yet exist.
+   Once the file is saved, immediately continue with implementing all `[agent]` remediation steps
+   without waiting for human approval.
 
 ## Decision Rules
 

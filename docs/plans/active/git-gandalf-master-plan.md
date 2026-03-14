@@ -6,6 +6,7 @@ estimated_hours: 40-60
 dependencies: []
 created: 2026-03-14
 date_updated: 2026-03-14
+
 related_files:
   - package.json
   - biome.json
@@ -54,8 +55,8 @@ completion:
   - [x] 1.13 `src/api/pipeline.ts`
   - [x] 1.14 `src/gitlab-client/client.ts`
   - "# Phase 2 — Agent Tools & Context Engine"
-  - [ ] 2.1 `src/context/repo-manager.ts`
-  - [ ] 2.2 `src/context/tools.ts`
+  - [x] 2.1 `src/context/repo-manager.ts`
+  - [x] 2.2 `src/context/tools.ts`
   - "# Phase 3 — Multi-Agent Orchestration"
   - [ ] 3.1 `src/agents/state.ts`
   - [ ] 3.2 `src/agents/llm-client.ts`
@@ -256,6 +257,7 @@ AWS_AUTH_SCHEME_PREFERENCE='smithy.api#httpBearerAuth'
 # LLM
 LLM_MODEL=global.anthropic.claude-sonnet-4-6
 MAX_TOOL_ITERATIONS=15
+MAX_SEARCH_RESULTS=100
 
 # Service
 REPO_CACHE_DIR=/tmp/repo_cache
@@ -280,6 +282,7 @@ const envSchema = z.object({
   AWS_AUTH_SCHEME_PREFERENCE: z.string().default('smithy.api#httpBearerAuth'),
   LLM_MODEL: z.string().default('global.anthropic.claude-sonnet-4-6'),
   MAX_TOOL_ITERATIONS: z.coerce.number().int().positive().default(15),
+  MAX_SEARCH_RESULTS: z.coerce.number().int().positive().default(100),
   REPO_CACHE_DIR: z.string().default('/tmp/repo_cache'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   PORT: z.coerce.number().default(8000),
@@ -359,7 +362,7 @@ Give agents the ability to explore the full repository, not just the raw diff.
 
 ---
 
-#### [NEW] `src/context/repo-manager.ts`
+#### [DONE] `src/context/repo-manager.ts`
 - `RepoManager` class using `Bun.spawn()`:
 ```typescript
 export class RepoManager {
@@ -396,13 +399,13 @@ export class RepoManager {
 }
 ```
 
-#### [NEW] `src/context/tools.ts`
+#### [DONE] `src/context/tools.ts`
 - Agent tools as plain functions + JSON schema descriptors for the LLM:
 
 | Tool | Signature | Description |
 |---|---|---|
 | `read_file` | `(path: string) → string` | Read a file's contents from the cloned repo. Returns up to 500 lines with line numbers. Path is relative to repo root. |
-| `search_codebase` | `(query: string, fileGlob?: string) → SearchResult[]` | Search using `ripgrep` via `Bun.spawn()`. Returns file, line number, and matching line. Capped at 30 results. |
+| `search_codebase` | `(query: string, fileGlob?: string) → SearchResult[]` | Search using `ripgrep` via `Bun.spawn()`. Returns file, line number, and matching line. Capped at `config.MAX_SEARCH_RESULTS` (default 100). |
 | `get_directory_structure` | `(path?: string) → string` | Tree-style directory listing (max depth 3). Ignores `node_modules`, `.git`, `__pycache__`, `dist`, etc. |
 
 ```typescript
