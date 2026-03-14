@@ -273,7 +273,7 @@ Bun's "all-in-one" covers runtime, package manager, bundler, and test runner —
   "formatter": {
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 100
+    "lineWidth": 120
   }
 }
 ```

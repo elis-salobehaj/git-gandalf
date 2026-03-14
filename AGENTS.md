@@ -53,6 +53,28 @@ Skills follow the [Agent Skills open standard](https://agentskills.io).
 Located at `.agents/skills/<skill-name>/SKILL.md`.
 Auto-discovered by Cursor, VSCode Copilot, OpenCode, and Antigravity.
 
+Current repo skills include:
+- `bun-project-conventions` for Bun-native implementation and review work
+- `review-plan-phase` for principal-engineer audits of plan-driven implementation phases
+- `plan-phase-remediation` for turning an approved audit report into an ordered remediation plan
+- `conventional-commits` for composing and validating git commit messages
+
+## ✅ Plan Completion Gate
+
+When work is driven by a markdown plan file, do not mark a phase, milestone, or plan item complete until you have run the `review-plan-phase` skill or performed the equivalent review standard yourself.
+
+For plan-driven work, agents must:
+- compare the implementation against the governing plan file item by item
+- verify adherence to this file, including Bun-only workflows, Zod validation at external boundaries, Biome conventions, and security requirements
+- inspect whether the implementation is thorough rather than scaffolded, shallow, or shortcut-based
+- verify tests are present and meaningful where the plan implies new behavior
+- verify all required documentation and plan-tracking updates were completed, including `docs/README.md` and relevant files under `docs/plans/`
+- produce a report that distinguishes what was implemented correctly from what was missed or still needs work
+
+If the review identifies gaps, do not start remediation automatically unless the human asks for it. After approval, use the `plan-phase-remediation` skill to turn the review report into an ordered remediation plan before editing code.
+
+Do not present a plan phase as complete based only on passing checks, partial scaffolding, or code that roughly resembles the plan. Completion requires alignment across implementation, tests, documentation, and plan bookkeeping.
+
 ## 🗺️ Active Work
 
 Always check [`docs/README.md`](docs/README.md) for current plans and priorities.

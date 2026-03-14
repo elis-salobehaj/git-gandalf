@@ -144,7 +144,7 @@ Stand up the Hono server on Bun, parse GitLab webhook payloads, and fetch MR dat
   "formatter": {
     "indentStyle": "space",
     "indentWidth": 2,
-    "lineWidth": 100
+    "lineWidth": 120
   }
 }
 ```
