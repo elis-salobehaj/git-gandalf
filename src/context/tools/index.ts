@@ -6,6 +6,7 @@
 // implementation detail.
 // ---------------------------------------------------------------------------
 
+import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import {
   getDirectoryStructure,
   toolDefinition as getDirectoryStructureDef,
@@ -28,7 +29,7 @@ export type { SearchResult } from "./shared";
 // Adding a new tool: create a new file, add its toolDefinition here.
 // ---------------------------------------------------------------------------
 
-export const TOOL_DEFINITIONS = [readFileDef, searchCodebaseDef, getDirectoryStructureDef];
+export const TOOL_DEFINITIONS = [readFileDef, searchCodebaseDef, getDirectoryStructureDef] satisfies readonly Tool[];
 
 // ---------------------------------------------------------------------------
 // Tool dispatcher — validates LLM-supplied arguments with Zod before calling

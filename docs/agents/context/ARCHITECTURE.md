@@ -12,6 +12,7 @@ Concise reference for the currently implemented GitGandalf architecture.
 - `src/gitlab-client/client.ts`: typed wrapper around `@gitbeaker/rest` for MR metadata, diffs, discussions, and posting comments.
 - `src/context/repo-manager.ts`: shallow clone/update cache manager using `Bun.spawn()` + native `git`.
 - `src/context/tools/`: modular tool surface used by the future investigator agent.
+- `src/agents/`: standalone Phase 3 review subsystem containing shared state, Bedrock client wrapper, three agents, and the orchestrator.
 
 ## Webhook Flow (Implemented)
 
@@ -42,9 +43,22 @@ Concise reference for the currently implemented GitGandalf architecture.
 - `executeTool`: Zod-validates tool inputs before dispatching to implementations
 - sandboxing: all file and directory paths are constrained with `path.resolve()` + prefix check
 
+## Standalone Agent Review Flow (Implemented)
+
+Phase 3 is implemented as a standalone subsystem, but it is not wired into the API pipeline yet.
+
+- `src/agents/state.ts`: `Finding` schema/type plus `ReviewState`
+- `src/agents/llm-client.ts`: thin Bedrock/Anthropic messages wrapper
+- `src/agents/context-agent.ts`: derives MR intent, change categories, and investigation hypotheses
+- `src/agents/investigator-agent.ts`: runs the tool loop with `TOOL_DEFINITIONS` and `executeTool()`
+- `src/agents/reflection-agent.ts`: filters findings and assigns the summary verdict
+- `src/agents/orchestrator.ts`: coordinates the three stages and allows one reinvestigation loop
+
+This subsystem currently expects its caller to provide `mrDetails`, `diffFiles`, and `repoPath`.
+Phase 4 will connect those inputs from the webhook/API path.
+
 ## Planned But Not Implemented Yet
 
-- Phase 3: `src/agents/*` multi-agent orchestration
 - Phase 4: `src/publisher/gitlab-publisher.ts` and full pipeline wiring
 - Phase 5+: queueing, Kubernetes, provider fallback
 

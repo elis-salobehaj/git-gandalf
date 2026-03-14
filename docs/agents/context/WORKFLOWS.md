@@ -62,7 +62,19 @@ Implemented in `src/context/tools/index.ts` and per-tool modules.
 
 No repo clone, Bedrock call, or GitLab publishing occurs yet.
 
-## 5. Planned Handoff to Phase 3 and 4
+## 5. Standalone Agent Review Workflow
 
-- Phase 3 will consume `RepoManager` and `src/context/tools` from the investigator agent loop
+Implemented in `src/agents/`.
+
+1. caller provides `ReviewState` input fields: `mrDetails`, `diffFiles`, `repoPath`
+2. `contextAgent()` derives `mrIntent`, `changeCategories`, and `riskAreas`
+3. `investigatorLoop()` builds the investigation prompt and calls Bedrock
+4. tool requests are executed through `executeTool()` using `TOOL_DEFINITIONS`
+5. `reflectionAgent()` filters the raw findings and assigns a verdict
+6. `orchestrator.ts` allows one reinvestigation round when `needsReinvestigation` is true
+
+The agent subsystem is implemented and tested, but it is not invoked from the API pipeline yet.
+
+## 6. Planned Handoff to Phase 4
+
 - Phase 4 will replace the pipeline stub with: fetch MR data → clone repo → run orchestrator → publish comments

@@ -4,16 +4,16 @@
 
 Concise, token-optimized reference for LLM agents. Prefer these over human docs to minimize context window usage.
 
-- [Architecture](./agents/context/ARCHITECTURE.md) — Current runtime surface, webhook flow, repo manager, tool system, and planned boundaries
+- [Architecture](./agents/context/ARCHITECTURE.md) — Current runtime surface, webhook flow, repo manager, tool system, standalone agent pipeline, and planned boundaries
 - [Configuration](./agents/context/CONFIGURATION.md) — Environment variables, defaults, required fields, and test-env notes
-- [Workflows](./agents/context/WORKFLOWS.md) — Implemented request flow, repo cache workflow, tool dispatch, and Phase 3/4 handoff points
+- [Workflows](./agents/context/WORKFLOWS.md) — Implemented webhook flow, repo cache workflow, agent review workflow, and Phase 4 handoff points
 - [Tech Stack Design](./agents/designs/tech-stack-evaluation.md) — Stack decisions and rationale summary
 
 ## 👥 Human Documentation (`docs/humans/`)
 
 Detailed, visual documentation with Mermaid diagrams and full rationale.
 
-- [Architecture](./humans/context/ARCHITECTURE.md) — Current implemented architecture, planned phases, and ELI5 explanation
+- [Architecture](./humans/context/ARCHITECTURE.md) — Current implemented architecture, standalone agent subsystem, planned phases, and ELI5 explanation
 - [Tech Stack Design](./humans/designs/tech-stack-evaluation.md) — Complete ecosystem analysis and technology decisions
 
 ## 📚 Guides (`docs/guides/`)
@@ -33,7 +33,7 @@ Detailed, visual documentation with Mermaid diagrams and full rationale.
 | **Phase 1** | ✅ Complete | Hono server, Zod webhook parsing, GitLab client wrapper, health and webhook endpoints |
 | **Phase 2** | ✅ Complete | Repo cache manager, tool executor, file/search/directory tools, and test coverage foundation |
 | **Phase 2.5** | ✅ Complete | Tool-per-file modularization with stable barrel import path in `src/context/tools/` |
-| **Phase 3** | ⬜ Planned | Multi-agent pipeline (context, investigator, reflection agents) |
+| **Phase 3** | ✅ Complete | Shared review state, Bedrock client wrapper, context/investigator/reflection agents, orchestrator, and Phase 3 test coverage |
 | **Phase 4** | ⬜ Planned | GitLab publisher (inline comments, summary comment) |
 | **Phase 5** | ⬜ Planned | Hardening, BullMQ queue, Docker Compose |
 
@@ -45,9 +45,9 @@ Implemented today:
 - strict Zod payload validation
 - GitLab data access wrapper
 - repo cache manager with host validation
-- modular tool surface for future investigator agents
+- modular tool surface for investigator agents
+- standalone multi-agent review subsystem with context, investigator, reflection, and orchestration stages
 
 Planned next:
 
-- Phase 3 multi-agent orchestration
 - Phase 4 result publishing and end-to-end review loop

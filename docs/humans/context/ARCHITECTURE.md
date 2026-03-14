@@ -1,6 +1,6 @@
 # Architecture
 
-GitGandalf is a Bun-native webhook service that is being built in phases. As of Phase 2.5, the repository contains a complete webhook ingestion layer, a typed GitLab client, a repo cache manager, and a modular tool execution surface. The full multi-agent reviewer and GitLab publishing loop are designed but not wired yet.
+GitGandalf is a Bun-native webhook service that is being built in phases. As of Phase 3, the repository contains a complete webhook ingestion layer, a typed GitLab client, a repo cache manager, a modular tool execution surface, and a standalone multi-agent review subsystem. The remaining gap is wiring that review subsystem into the API pipeline and publishing results back to GitLab.
 
 For the concise agent-optimized version, see [`docs/agents/context/ARCHITECTURE.md`](../../agents/context/ARCHITECTURE.md).
 
@@ -20,6 +20,13 @@ graph TD
 	K[Tool Barrel] --> L[read_file]
 	K --> M[search_codebase]
 	K --> N[get_directory_structure]
+
+	O[Standalone ReviewState input] --> P[contextAgent]
+	P --> Q[investigatorLoop]
+	Q --> K
+	Q --> R[reflectionAgent]
+	R -->|needsReinvestigation| Q
+	R --> S[summaryVerdict + verifiedFindings]
 ```
 
 ## Directory Structure
@@ -68,6 +75,7 @@ git-gandalf/
 	├── webhook.test.ts             # Phase 1 tests
 	├── tools.test.ts               # Phase 2 tests
 	├── agents.test.ts              # Phase 3 tests
+	├── agents-entrypoints.test.ts  # Direct Phase 3 agent entrypoint tests with mocked LLM responses
 	└── publisher.test.ts           # Phase 4 tests
 ```
 
@@ -79,12 +87,13 @@ git-gandalf/
 | `src/gitlab-client/` | Implemented | Phase 1 | Typed GitLab wrapper exists, including read and write methods needed by later phases. |
 | `src/context/repo-manager.ts` | Implemented | Phase 2 | Shallow clone/update cache manager with TTL cleanup and host validation. |
 | `src/context/tools/` | Implemented | Phase 2 and 2.5 | Tool surface exists and was modularized in Phase 2.5 into one file per tool. |
-| `src/agents/` | Planned | Phase 3 | State model, Bedrock client, context agent, investigator agent, reflection agent, and orchestrator are still to be implemented. |
+| `src/agents/` | Implemented | Phase 3 | Shared state, Bedrock client wrapper, context agent, investigator agent, reflection agent, and orchestrator are implemented as a standalone subsystem. |
 | `src/publisher/` | Planned | Phase 4 | GitLab publisher for inline comments and summary comment is not implemented yet. |
 | `Dockerfile`, `docker-compose.yml`, top-level `README.md` | Planned | Phase 4 | Deployment packaging and end-user project documentation remain open. |
 | `tests/webhook.test.ts` | Implemented | Phase 1 | Covers auth, filtering, invalid payloads, and strict schema behavior. |
 | `tests/tools.test.ts`, `tests/repo-manager.test.ts` | Implemented | Phase 2 and 2.5 | Covers tool sandboxing, search and tree behavior, repo cache cleanup, and SSRF guard behavior. |
-| `tests/agents.test.ts`, `tests/publisher.test.ts` | Planned | Phases 3 and 4 | Reserved for future orchestration and publishing coverage. |
+| `tests/agents.test.ts`, `tests/agents-entrypoints.test.ts` | Implemented | Phase 3 | Covers prompt builders/parsers, orchestrator control flow, and direct agent entrypoints with mocked LLM responses. |
+| `tests/publisher.test.ts` | Planned | Phase 4 | Reserved for GitLab publishing coverage. |
 
 ## Implemented Components
 
@@ -154,16 +163,22 @@ Phase 2.5 split the original monolithic `src/context/tools.ts` into per-tool mod
 
 This keeps each tool independently testable and makes the public API surface explicit in one place.
 
+### Standalone agent review subsystem
+
+Phase 3 adds the review logic itself under `src/agents/`.
+
+- `state.ts` defines `Finding` and `ReviewState`
+- `llm-client.ts` wraps the Anthropic Bedrock messages API
+- `context-agent.ts` derives MR intent, changed areas, and initial risk hypotheses
+- `investigator-agent.ts` runs the tool loop against the cloned repository context
+- `reflection-agent.ts` filters noise and assigns the review verdict
+- `orchestrator.ts` coordinates the three stages and allows one reinvestigation loop
+
+This review subsystem is implemented and testable on its own, but it is not yet wired to fetch GitLab data automatically or publish comments.
+
 ## What Is Still Planned
 
 The target architecture in the master plan goes further than the current implementation.
-
-### Phase 3
-
-- `src/agents/state.ts`
-- `src/agents/llm-client.ts`
-- context, investigator, and reflection agents
-- orchestrator with optional reinvestigation loop
 
 ### Phase 4
 
@@ -176,8 +191,8 @@ The target architecture in the master plan goes further than the current impleme
 - Bun is used directly for runtime, subprocesses, and file access to keep the stack small and fast.
 - Zod is used at all external boundaries so invalid inputs fail before they enter core logic.
 - The tool system is split by file so future tools are modular and reusable.
-- The agent orchestrator is deferred until the repo exploration and tooling substrate is stable.
+- The agent subsystem is implemented before the full API wiring so the review engine can be tested independently.
 
 ## ELI5
 
-Right now GitGandalf can answer the phone, check who is calling, decide whether the call matters, and log the job that should happen next. It also already has the toolbox ready for the future reviewer agents. What it does not do yet is perform the review itself or post comments back to GitLab.
+Right now GitGandalf can answer the phone, check who is calling, decide whether the call matters, and it also already has a review brain that can inspect a merge request if you hand it the MR details, diff, and repo path. What it does not do yet is connect those two halves automatically or post comments back to GitLab.

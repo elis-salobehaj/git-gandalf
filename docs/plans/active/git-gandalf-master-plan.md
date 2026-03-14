@@ -64,12 +64,12 @@ completion:
   - "# Phase 2.5 — Tool Modularization"
   - [x] 2.5 Split `src/context/tools.ts` into `src/context/tools/` per-tool modules
   - "# Phase 3 — Multi-Agent Orchestration"
-  - [ ] 3.1 `src/agents/state.ts`
-  - [ ] 3.2 `src/agents/llm-client.ts`
-  - [ ] 3.3 `src/agents/context-agent.ts`
-  - [ ] 3.4 `src/agents/investigator-agent.ts`
-  - [ ] 3.5 `src/agents/reflection-agent.ts`
-  - [ ] 3.6 `src/agents/orchestrator.ts`
+  - [x] 3.1 `src/agents/state.ts`
+  - [x] 3.2 `src/agents/llm-client.ts`
+  - [x] 3.3 `src/agents/context-agent.ts`
+  - [x] 3.4 `src/agents/investigator-agent.ts`
+  - [x] 3.5 `src/agents/reflection-agent.ts`
+  - [x] 3.6 `src/agents/orchestrator.ts`
   - "# Phase 4 — GitLab API Feedback Loop"
   - [ ] 4.1 `src/publisher/gitlab-publisher.ts`
   - [ ] 4.2 `src/api/router.ts` (Wire up pipeline)
