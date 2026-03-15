@@ -1,11 +1,11 @@
 ---
 title: "Structured Logging for GitGandalf"
-status: backlog
+status: implemented
 priority: medium
 estimated_hours: 6-10
 dependencies: []
 created: 2026-03-14
-date_updated: 2026-03-14
+date_updated: 2026-03-15
 
 related_files:
   - src/index.ts
@@ -29,6 +29,60 @@ tags:
   - observability
   - infrastructure
   - logtape
+completion:
+  - "# Phase L1 — Core LogTape Setup"
+  - [x] L1.1 Install `@logtape/logtape` and `@logtape/hono`
+  - [x] L1.2 Create `src/logger.ts` with `initLogging()`, `resetLogging()`, re-exports
+  - [x] L1.3 Call `initLogging()` in `src/index.ts` before app creation
+  - [x] L1.4 Verify server starts without errors
+  - [x] L1.5 Update `docs/agents/context/CONFIGURATION.md` — LOG_LEVEL wired
+  - [x] L1.6 Update `docs/agents/context/ARCHITECTURE.md` — add `src/logger.ts`
+  - [x] L1.7 Update `docs/humans/context/ARCHITECTURE.md` — directory tree + structured logging section
+  - [x] L1.8 Update `docs/guides/GETTING_STARTED.md` — add logging to scope
+  - [x] L1.9 Update `docs/guides/DEVELOPMENT.md` — add logging conventions section
+  - [x] L1.10 Update `docs/README.md` — add logging to implemented list
+  - "# Phase L2 — Hono HTTP Middleware Replacement"
+  - [x] L2.1 Replace `hono/logger` with `@logtape/hono` in `src/index.ts`
+  - [x] L2.2 Verify structured JSON output (curl test)
+  - [x] L2.3 Run `bun test` — all existing tests pass
+  - [x] L2.4 Update `docs/agents/context/ARCHITECTURE.md` — structured HTTP middleware
+  - [x] L2.5 Update `docs/humans/context/ARCHITECTURE.md` — Mermaid diagram + Hono section
+  - [x] L2.6 Update `docs/agents/context/WORKFLOWS.md` — http logging note
+  - "# Phase L3 — Module-by-Module Console Migration"
+  - [x] L3.1 Migrate `src/api/router.ts` (2 calls)
+  - [x] L3.2 Migrate `src/api/pipeline.ts` (2 calls)
+  - [x] L3.3 Migrate `src/agents/orchestrator.ts` (5 calls)
+  - [x] L3.4 Migrate `src/publisher/gitlab-publisher.ts` (3 calls)
+  - [x] L3.5 Grep confirms zero remaining `console.` in `src/`
+  - [x] L3.6 Convention documented (no Biome rule needed)
+  - [x] L3.7 Run `bun run check && bun run typecheck && bun test`
+  - [x] L3.8 Update `docs/agents/context/ARCHITECTURE.md` — webhook flow + logger refs
+  - [x] L3.9 Update `docs/agents/context/WORKFLOWS.md` — pipeline stub section replaced
+  - [x] L3.10 Update `docs/humans/context/ARCHITECTURE.md` — Mermaid diagram, phase table
+  - [x] L3.11 Update `docs/guides/DEVELOPMENT.md` — expand logging conventions with examples
+  - [x] L3.12 Update `docs/agents/README.md` — logging convention bullet
+  - "# Phase L4 — Request Correlation & Context Propagation"
+  - [x] L4.1 Generate `requestId = Bun.randomUUIDv7()` in router handler
+  - [x] L4.2 Wrap `runPipeline()` call in `withContext({ requestId })`
+  - [x] L4.3 Wrap pipeline body in `withContext({ projectId, mrIid })`
+  - [x] L4.4 Verify context fields appear in every downstream log line
+  - [x] L4.5 Run `bun run check && bun run typecheck && bun test`
+  - [x] L4.6 Update `docs/agents/context/ARCHITECTURE.md` — request correlation section
+  - [x] L4.7 Update `docs/agents/context/WORKFLOWS.md` — requestId step in webhook flow
+  - [x] L4.8 Update `docs/humans/context/ARCHITECTURE.md` — implicit context propagation
+  - [x] L4.9 Update `docs/guides/DEVELOPMENT.md` — withContext guide
+  - [x] L4.10 Update `docs/guides/GETTING_STARTED.md` — requestId traceability note
+  - "# Phase L5 — Test Infrastructure & Final Validation"
+  - [x] L5.1 Configure LogTape capture sink for tests in `tests/logger.test.ts`
+  - [x] L5.2 All 107 original tests still pass
+  - [x] L5.3 New `tests/logger.test.ts` — 5 tests (level filtering, structured properties, category hierarchy)
+  - [x] L5.4 `bun run check` — Biome clean
+  - [x] L5.5 `bun run typecheck` — clean
+  - [x] L5.6 Update `docs/README.md` — logging in implemented list + plan index
+  - [x] L5.7 Update `docs/agents/README.md` — logging convention reference verified
+  - [x] L5.8 Update `docs/humans/README.md` — Architecture description mentions logging
+  - [x] L5.9 Final grep pass — no stale `console.log`, `hono/logger`, or 'not yet wired' refs
+  - [x] L5.10 Plan moved to `docs/plans/implemented/`, status set to 'implemented'
 ---
 
 # Structured Logging for GitGandalf
@@ -158,12 +212,12 @@ and wire `config.LOG_LEVEL` so it actually controls log output.
 
 #### Tasks
 
-- [ ] **L1.1** — Install dependencies:
+- [x] **L1.1** — Install dependencies:
   ```bash
   bun add @logtape/logtape @logtape/hono
   ```
 
-- [ ] **L1.2** — Create `src/logger.ts` with the following responsibilities:
+- [x] **L1.2** — Create `src/logger.ts` with the following responsibilities:
   - Import `configure`, `getConsoleSink`, `getLogger` from `@logtape/logtape`
   - Import `AsyncLocalStorage` from `node:async_hooks` (Bun supports this)
   - Define and export an `initLogging()` async function that calls `configure()`:
@@ -176,37 +230,37 @@ and wire `config.LOG_LEVEL` so it actually controls log output.
   - Export a convenience `resetLogging()` that calls `dispose()` — used in
     tests to cleanly tear down
 
-- [ ] **L1.3** — Call `await initLogging()` in `src/index.ts` **before** the
+- [x] **L1.3** — Call `await initLogging()` in `src/index.ts` **before** the
   Hono app is created, so all subsequent logger calls have the configured sinks
   available.
 
-- [ ] **L1.4** — Verify locally: start the server with `bun run dev`, confirm
+- [x] **L1.4** — Verify locally: start the server with `bun run dev`, confirm
   that the existing `hono/logger` output still works and the new LogTape setup
   does not error.
 
 #### Docs Overhaul — Phase L1
 
-- [ ] **L1.5** — Update `docs/agents/context/CONFIGURATION.md`:
+- [x] **L1.5** — Update `docs/agents/context/CONFIGURATION.md`:
   - Change the `LOG_LEVEL` row from "Parsed today but not yet wired to a
     structured logger" to "Wired to LogTape via `src/logger.ts`. Controls the
     `lowestLevel` of the root `["gandalf"]` logger category."
-- [ ] **L1.6** — Update `docs/agents/context/ARCHITECTURE.md`:
+- [x] **L1.6** — Update `docs/agents/context/ARCHITECTURE.md`:
   - Add `src/logger.ts` to the "Current Runtime Surface" list with description:
     "LogTape configuration, `initLogging()` setup, re-exports `getLogger` and
     `withContext` for the codebase."
-- [ ] **L1.7** — Update `docs/humans/context/ARCHITECTURE.md`:
+- [x] **L1.7** — Update `docs/humans/context/ARCHITECTURE.md`:
   - Add `src/logger.ts` to the directory structure tree
   - Add a new subsection under "Implemented Components" titled
     "Structured logging" explaining LogTape, hierarchical categories, the
     console JSON sink, and `LOG_LEVEL` wiring
-- [ ] **L1.8** — Update `docs/guides/GETTING_STARTED.md`:
+- [x] **L1.8** — Update `docs/guides/GETTING_STARTED.md`:
   - In "Understand the current scope" add "Structured logging via LogTape
     with level filtering" to the implemented list
-- [ ] **L1.9** — Update `docs/guides/DEVELOPMENT.md`:
+- [x] **L1.9** — Update `docs/guides/DEVELOPMENT.md`:
   - Add a "Logging conventions" section documenting: use `getLogger()` from
     `src/logger.ts`, never use bare `console.*` in source code, category naming
     convention (`["gandalf", "<module>"]`)
-- [ ] **L1.10** — Update `docs/README.md`:
+- [x] **L1.10** — Update `docs/README.md`:
   - In "Implemented today" list, add "Structured logging via LogTape with
     `LOG_LEVEL` filtering and hierarchical categories"
 
@@ -219,7 +273,7 @@ request/response logging is structured JSON rather than plain text.
 
 #### Tasks
 
-- [ ] **L2.1** — In `src/index.ts`:
+- [x] **L2.1** — In `src/index.ts`:
   - Remove `import { logger } from "hono/logger"`
   - Import `{ honoLogger }` from `@logtape/hono`
   - Replace `app.use("*", logger())` with:
@@ -233,27 +287,27 @@ request/response logging is structured JSON rather than plain text.
     ```
   - The `skip` function excludes health check noise from logs.
 
-- [ ] **L2.2** — Verify structured JSON output: start the server, `curl` the
+- [x] **L2.2** — Verify structured JSON output: start the server, `curl` the
   webhook endpoint and the health endpoint. Confirm:
   - Webhook requests produce a JSON log line with `method`, `path`, `status`,
     `responseTime` fields
   - Health check requests produce no log line (skipped)
 
-- [ ] **L2.3** — Run `bun test` — the existing webhook tests must still pass
+- [x] **L2.3** — Run `bun test` — the existing webhook tests must still pass
   unchanged. If any test relied on capturing `hono/logger` output, update it.
 
 #### Docs Overhaul — Phase L2
 
-- [ ] **L2.4** — Update `docs/agents/context/ARCHITECTURE.md`:
+- [x] **L2.4** — Update `docs/agents/context/ARCHITECTURE.md`:
   - Change the `src/index.ts` description from "enables request logging" to
     "enables structured HTTP request logging via `@logtape/hono` middleware
     (JSON Lines output, health check excluded)"
-- [ ] **L2.5** — Update `docs/humans/context/ARCHITECTURE.md`:
+- [x] **L2.5** — Update `docs/humans/context/ARCHITECTURE.md`:
   - Update the "Hono server" section under "Implemented Components" to mention
     `@logtape/hono` structured middleware replacing the built-in `hono/logger`
   - Update the Mermaid diagram: change `H[console log only]` to reflect the
     new structured logging path
-- [ ] **L2.6** — Update `docs/agents/context/WORKFLOWS.md`:
+- [x] **L2.6** — Update `docs/agents/context/WORKFLOWS.md`:
   - In section "1. Webhook Ingestion", add a note that HTTP request/response
     logging is handled automatically by `@logtape/hono` middleware and
     emits structured JSON to stdout
@@ -268,7 +322,7 @@ calls remain in production source code.
 
 #### Tasks
 
-- [ ] **L3.1** — Migrate `src/api/router.ts` (2 calls):
+- [x] **L3.1** — Migrate `src/api/router.ts` (2 calls):
   - Add `const logger = getLogger(["gandalf", "router"])` at module scope
   - Replace `console.warn("[webhook] Payload validation failed:", ...)` with
     `logger.warn("Payload validation failed: {error}", { error: result.error.message })`
@@ -277,14 +331,14 @@ calls remain in production source code.
   - Remove the manual `[webhook]` / `[pipeline]` prefixes — the category
     system handles module identification.
 
-- [ ] **L3.2** — Migrate `src/api/pipeline.ts` (2 calls):
+- [x] **L3.2** — Migrate `src/api/pipeline.ts` (2 calls):
   - Add `const logger = getLogger(["gandalf", "pipeline"])` at module scope
   - Replace the `console.log` at pipeline start with
     `logger.info("Starting review for MR", { projectId, mrIid })`
   - Replace the `console.log` at pipeline end with
     `logger.info("Review complete", { verdict: state.summaryVerdict, findings: state.verifiedFindings.length })`
 
-- [ ] **L3.3** — Migrate `src/agents/orchestrator.ts` (5 calls):
+- [x] **L3.3** — Migrate `src/agents/orchestrator.ts` (5 calls):
   - Add `const logger = getLogger(["gandalf", "orchestrator"])` at module scope
   - Replace each `console.log("[orchestrator] ...")` with the corresponding
     LogTape call:
@@ -295,7 +349,7 @@ calls remain in production source code.
     - `"Re-investigation requested"` → `logger.info("Re-investigation requested — looping back to Agent 2")`
     - `"Review complete: ..."` → `logger.info("Review complete", { verdict: state.summaryVerdict, findings: state.verifiedFindings.length })`
 
-- [ ] **L3.4** — Migrate `src/publisher/gitlab-publisher.ts` (3 calls):
+- [x] **L3.4** — Migrate `src/publisher/gitlab-publisher.ts` (3 calls):
   - Add `const logger = getLogger(["gandalf", "publisher"])` at module scope
   - Replace `console.warn("[publisher] Skipping non-diff finding: ...")` with
     `logger.warn("Skipping non-diff finding", { title: finding.title, file: finding.file, lineStart: finding.lineStart, lineEnd: finding.lineEnd })`
@@ -305,30 +359,30 @@ calls remain in production source code.
   - Replace `console.warn("[publisher] Failed to post finding ...")` with
     `logger.error("Failed to post finding", { title: finding.title, error: error instanceof Error ? error.message : String(error) })`
 
-- [ ] **L3.5** — Run a project-wide grep to confirm zero remaining `console.`
+- [x] **L3.5** — Run a project-wide grep to confirm zero remaining `console.`
   calls in `src/`:
   ```bash
   grep -rn "console\." src/ --include="*.ts"
   ```
   If any remain, migrate them.
 
-- [ ] **L3.6** — Add a Biome lint rule or comment convention to discourage
+- [x] **L3.6** — Add a Biome lint rule or comment convention to discourage
   future `console.*` usage in `src/` (optional — document the convention at
   minimum).
 
-- [ ] **L3.7** — Run the full validation suite:
+- [x] **L3.7** — Run the full validation suite:
   ```bash
   bun run check && bun run typecheck && bun test
   ```
 
 #### Docs Overhaul — Phase L3
 
-- [ ] **L3.8** — Update `docs/agents/context/ARCHITECTURE.md`:
+- [x] **L3.8** — Update `docs/agents/context/ARCHITECTURE.md`:
   - In the "Webhook Flow" section, replace any mention of console logging
     with "logged via LogTape structured logger"
   - Update the line "Called fire-and-forget by the router; errors are logged
     at the call site" to reference LogTape categories
-- [ ] **L3.9** — Update `docs/agents/context/WORKFLOWS.md`:
+- [x] **L3.9** — Update `docs/agents/context/WORKFLOWS.md`:
   - In section "4. Current Pipeline Boundary", remove or update the text
     "`src/api/pipeline.ts` is still a stub. The current workflow ends at
     logging" — this description is stale (Phase 4 is complete) and the
@@ -336,16 +390,16 @@ calls remain in production source code.
   - In section "5. Standalone Agent Review Workflow", note that each agent
     stage emits structured logs under `["gandalf", "orchestrator"]` /
     `["gandalf", "agent", "*"]` categories
-- [ ] **L3.10** — Update `docs/humans/context/ARCHITECTURE.md`:
+- [x] **L3.10** — Update `docs/humans/context/ARCHITECTURE.md`:
   - Refresh the Mermaid diagram to remove `H[console log only]` and show
     the structured logging flow
   - Update the Phase Ownership table if necessary (logging is now an
     implemented cross-cutting concern, not owned by a single phase)
-- [ ] **L3.11** — Update `docs/guides/DEVELOPMENT.md`:
+- [x] **L3.11** — Update `docs/guides/DEVELOPMENT.md`:
   - Expand the "Logging conventions" section (added in L1.9) with concrete
     examples of the migrated patterns: structured properties, error handling,
     and how to add a logger to a new module
-- [ ] **L3.12** — Update `docs/agents/README.md`:
+- [x] **L3.12** — Update `docs/agents/README.md`:
   - Add a bullet point referencing the logging convention documentation
 
 ---
@@ -358,13 +412,13 @@ orchestrator → agents → publisher flow is traceable.
 
 #### Tasks
 
-- [ ] **L4.1** — In `src/api/router.ts`, at the start of the webhook handler
+- [x] **L4.1** — In `src/api/router.ts`, at the start of the webhook handler
   (after auth and validation succeed), generate a request ID:
   ```typescript
   const requestId = crypto.randomUUID();
   ```
 
-- [ ] **L4.2** — Wrap the `runPipeline()` call in `withContext()`:
+- [x] **L4.2** — Wrap the `runPipeline()` call in `withContext()`:
   ```typescript
   import { withContext } from "../logger.js";
 
@@ -377,7 +431,7 @@ orchestrator → agents → publisher flow is traceable.
   agents and the publisher — automatically includes the `requestId` field
   in its structured JSON output.
 
-- [ ] **L4.3** — Enrich the pipeline context: in `src/api/pipeline.ts`, add
+- [x] **L4.3** — Enrich the pipeline context: in `src/api/pipeline.ts`, add
   `projectId` and `mrIid` to the implicit context at pipeline entry:
   ```typescript
   await withContext({ projectId, mrIid }, async () => {
@@ -388,38 +442,38 @@ orchestrator → agents → publisher flow is traceable.
   `requestId` + `projectId` + `mrIid` without any of those modules needing
   to know about request correlation.
 
-- [ ] **L4.4** — Verify context propagation: start the server, send a test
+- [x] **L4.4** — Verify context propagation: start the server, send a test
   webhook via `curl`, and inspect stdout. Every JSON log line from router →
   pipeline → orchestrator → publisher should include the same `requestId`
   value, plus `projectId` and `mrIid` where applicable.
 
-- [ ] **L4.5** — Run the full validation suite:
+- [x] **L4.5** — Run the full validation suite:
   ```bash
   bun run check && bun run typecheck && bun test
   ```
 
 #### Docs Overhaul — Phase L4
 
-- [ ] **L4.6** — Update `docs/agents/context/ARCHITECTURE.md`:
+- [x] **L4.6** — Update `docs/agents/context/ARCHITECTURE.md`:
   - Add a new subsection "Request Correlation" under the webhook flow or as a
     standalone section. Explain: `requestId` generated in router, propagated
     via `withContext()`, all downstream logs carry `requestId`, `projectId`,
     and `mrIid` automatically.
-- [ ] **L4.7** — Update `docs/agents/context/WORKFLOWS.md`:
+- [x] **L4.7** — Update `docs/agents/context/WORKFLOWS.md`:
   - In "1. Webhook Ingestion", add step between token verification and
     pipeline dispatch: "generate `requestId` via `crypto.randomUUID()` and
     propagate via LogTape `withContext()`"
   - In "5. Standalone Agent Review Workflow" (or the full pipeline workflow),
     note that all log output carries request correlation fields
-- [ ] **L4.8** — Update `docs/humans/context/ARCHITECTURE.md`:
+- [x] **L4.8** — Update `docs/humans/context/ARCHITECTURE.md`:
   - Expand the "Structured logging" section (added in L1.7) with a
     description of implicit context propagation and the fields carried
   - Update the Mermaid diagram to show `requestId` flow if it adds clarity
-- [ ] **L4.9** — Update `docs/guides/DEVELOPMENT.md`:
+- [x] **L4.9** — Update `docs/guides/DEVELOPMENT.md`:
   - In "Logging conventions", add a subsection on context propagation:
     how `withContext()` works, what fields are available, and how to add
     custom context in new modules
-- [ ] **L4.10** — Update `docs/guides/GETTING_STARTED.md`:
+- [x] **L4.10** — Update `docs/guides/GETTING_STARTED.md`:
   - In the "Send a sample webhook" section, update "Current behavior" to
     mention that each request is logged with a unique `requestId` and
     `projectId` / `mrIid` for traceability
@@ -434,7 +488,7 @@ pass.
 
 #### Tasks
 
-- [ ] **L5.1** — Create or update test setup for LogTape:
+- [x] **L5.1** — Create or update test setup for LogTape:
   - Before the test suite runs, call `initLogging()` with a test-appropriate
     configuration (either a no-op sink or a capturing sink)
   - Alternatively, call `configure()` with `reset: true` in a
@@ -442,38 +496,38 @@ pass.
   - Use LogTape's `getTestSink()` if available, or a custom sink that
     pushes records to an array for assertion
 
-- [ ] **L5.2** — Verify all 48+ existing tests still pass:
+- [x] **L5.2** — Verify all 48+ existing tests still pass:
   ```bash
   bun test
   ```
 
-- [ ] **L5.3** — Add targeted logging tests (in a new `tests/logger.test.ts`
+- [x] **L5.3** — Add targeted logging tests (in a new `tests/logger.test.ts`
   or within relevant test files):
   - Test that log output respects `LOG_LEVEL` filtering (set level to `warn`,
     emit an `info` log, confirm no output)
   - Test that `withContext()` fields appear in captured log records
   - Test that the category hierarchy works as expected
 
-- [ ] **L5.4** — Run `bun run check` to confirm Biome compliance across all
+- [x] **L5.4** — Run `bun run check` to confirm Biome compliance across all
   changed files.
 
-- [ ] **L5.5** — Run `bun run typecheck` to confirm no TypeScript errors.
+- [x] **L5.5** — Run `bun run typecheck` to confirm no TypeScript errors.
 
 #### Docs Overhaul — Phase L5 (Final Pass)
 
-- [ ] **L5.6** — Update `docs/README.md`:
+- [x] **L5.6** — Update `docs/README.md`:
   - Ensure the "Current State Summary" section's "Implemented today" list
     includes structured logging as a line item
   - Review the "Planned next" list — remove any logging-related items if they
     were listed there
-- [ ] **L5.7** — Update `docs/agents/README.md`:
+- [x] **L5.7** — Update `docs/agents/README.md`:
   - Confirm the logging convention reference (added in L3.12) is accurate
     and points to the right development guide section
-- [ ] **L5.8** — Update `docs/humans/README.md`:
+- [x] **L5.8** — Update `docs/humans/README.md`:
   - If the humans/ docs now cover logging in ARCHITECTURE.md, ensure the
     README's "Available Docs" section's Architecture description mentions
     logging/observability
-- [ ] **L5.9** — Final review pass across **all** docs under `docs/`:
+- [x] **L5.9** — Final review pass across **all** docs under `docs/`:
   - `docs/README.md`
   - `docs/agents/README.md`
   - `docs/agents/context/ARCHITECTURE.md`
@@ -485,7 +539,7 @@ pass.
   - `docs/guides/DEVELOPMENT.md`
   Confirm no stale references to `console.log`, `hono/logger`, or "not yet
   wired" remain. Grep for these terms and fix any stragglers.
-- [ ] **L5.10** — Update this plan file: mark all phases complete, move from
+- [x] **L5.10** — Update this plan file: mark all phases complete, move from
   `docs/plans/backlog/` to `docs/plans/implemented/` when done.
 
 ---

@@ -21,10 +21,12 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "hono": "^4.12.8",
-    "@gitbeaker/rest": "latest",
     "@anthropic-ai/bedrock-sdk": "latest",
     "@aws-sdk/credential-providers": "latest",
+    "@gitbeaker/rest": "latest",
+    "@logtape/hono": "^2.0.4",
+    "@logtape/logtape": "^2.0.4",
+    "hono": "^4.12.8",
     "zod": "latest"
   }
 }

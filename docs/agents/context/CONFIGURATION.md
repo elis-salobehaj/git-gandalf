@@ -14,7 +14,7 @@ Compact reference for all environment variables accepted by `src/config.ts`.
 | `MAX_TOOL_ITERATIONS` | no | positive integer | `15` | Upper bound for tool-call iterations inside `investigatorLoop()`. |
 | `MAX_SEARCH_RESULTS` | no | positive integer | `100` | Caps `search_codebase` results returned from ripgrep parsing. |
 | `REPO_CACHE_DIR` | no | string | `/tmp/repo_cache` | Root directory for shallow repo clones managed by `RepoManager`. |
-| `LOG_LEVEL` | no | enum | `info` | Parsed today but not yet wired to a structured logger. |
+| `LOG_LEVEL` | no | enum | `info` | Wired to LogTape via `src/logger.ts`. Controls the `lowestLevel` of the root `["gandalf"]` logger category. Accepted values: `debug`, `info`, `warn`, `error`. Mapped to LogTape's level names internally. When set to `debug` outside tests, logs are also appended to `logs/gg-dev.log` under the project root. |
 | `PORT` | no | positive integer | `8000` | Port used by the Bun server export in `src/index.ts`. |
 
 ## Validation Rules

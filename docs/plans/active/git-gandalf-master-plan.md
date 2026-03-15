@@ -304,22 +304,7 @@ export const config = envSchema.parse(process.env);
 ```
 
 #### [DONE] `src/index.ts`
-- Create Hono app, mount API router, start Bun HTTP server:
-```typescript
-import { Hono } from 'hono';
-import { logger } from 'hono/logger';
-import { config } from './config';
-import { apiRouter } from './api/router';
-
-const app = new Hono();
-app.use('*', logger());
-app.route('/api/v1', apiRouter);
-
-export default {
-  port: config.PORT,
-  fetch: app.fetch,
-};
-```
+- Create Hono app, mount API router, start Bun HTTP server. Updated by the logging plan to call `initLogging()` and replace `hono/logger` with `@logtape/hono` structured middleware.
 
 #### [DONE] `src/api/schemas.ts`
 - Zod schemas for GitLab webhook payloads:

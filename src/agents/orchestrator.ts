@@ -15,10 +15,13 @@
 //   return ReviewState
 // ---------------------------------------------------------------------------
 
+import { getLogger } from "../logger";
 import { contextAgent } from "./context-agent";
 import { investigatorLoop } from "./investigator-agent";
 import { reflectionAgent } from "./reflection-agent";
 import type { ReviewState } from "./state";
+
+const logger = getLogger(["gandalf", "orchestrator"]);
 
 /**
  * Run the full 3-agent review pipeline and return the final ReviewState.
@@ -28,28 +31,28 @@ import type { ReviewState } from "./state";
  *                       function.
  */
 export async function runReview(initialState: ReviewState): Promise<ReviewState> {
-  console.log("[orchestrator] Starting review pipeline");
+  logger.info("Starting review pipeline");
 
   // Stage 1: Context & Intent
-  console.log("[orchestrator] Agent 1: Context & Intent");
+  logger.info("Running Agent 1: Context & Intent");
   let state = await contextAgent(initialState);
 
   // Stage 2: Socratic Investigation (tool loop)
-  console.log("[orchestrator] Agent 2: Socratic Investigation");
+  logger.info("Running Agent 2: Socratic Investigation");
   state = await investigatorLoop(state);
 
   // Stage 3: Reflection & Consolidation
-  console.log("[orchestrator] Agent 3: Reflection & Consolidation");
+  logger.info("Running Agent 3: Reflection & Consolidation");
   state = await reflectionAgent(state);
 
   // Optional re-investigation loop (max 1 round trip)
   if (state.needsReinvestigation && state.reinvestigationCount < 1) {
-    console.log("[orchestrator] Re-investigation requested — looping back to Agent 2");
+    logger.info("Re-investigation requested — looping back to Agent 2");
     state = { ...state, reinvestigationCount: state.reinvestigationCount + 1 };
     state = await investigatorLoop(state);
     state = await reflectionAgent(state);
   }
 
-  console.log(`[orchestrator] Review complete: ${state.summaryVerdict} (${state.verifiedFindings.length} findings)`);
+  logger.info("Review complete", { verdict: state.summaryVerdict, findings: state.verifiedFindings.length });
   return state;
 }

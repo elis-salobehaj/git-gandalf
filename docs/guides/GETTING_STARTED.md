@@ -66,7 +66,8 @@ Current behavior:
 
 - matching merge request events return `202 Accepted`
 - non-matching but valid events return `200 Ignored`
-- the pipeline only logs the event today; no clone, LLM call, or GitLab comment is performed yet
+- accepted events continue through the full pipeline: MR fetch, repo clone/update, agent review, and GitLab publishing
+- every accepted request carries `requestId`, `projectId`, and `mrIid` through the log context
 
 ## 6. Understand the current scope
 
@@ -77,12 +78,18 @@ Implemented now:
 - GitLab client wrapper
 - repo cache manager
 - modular tool surface for future agents
+- integrated multi-agent review subsystem (context, investigator, reflection, orchestrator)
+- end-to-end pipeline: webhook → agents → GitLab inline comments + summary note
+- GitLab publisher with duplicate detection
+- structured logging via LogTape: JSON Lines to stdout, `LOG_LEVEL` filtering, request correlation
 
-Not implemented yet:
+Every accepted webhook emits logs with a unique `requestId` plus `projectId` and `mrIid` for end-to-end traceability.
 
-- multi-agent review orchestration
-- GitLab comment publishing
-- Docker deployment files
+Set `LOG_LEVEL=debug` for verbose per-agent output, or `LOG_LEVEL=warn` for quiet production deployments. In debug mode, logs are also written to `logs/gg-dev.log` under the project root.
+
+Still planned:
+
+- Phase 5 production hardening (task queue, Kubernetes, provider fallback)
 
 ## Useful next commands
 

@@ -2,6 +2,63 @@
 
 This repository is plan-driven and Bun-first. Use the active plan and AGENTS.md as part of the development contract, not as optional reference material.
 
+## Logging conventions
+
+All source modules use LogTape via `src/logger.ts`. Never use bare `console.*` in `src/` — log output must route through LogTape so `LOG_LEVEL` filtering and request correlation work correctly.
+
+When `LOG_LEVEL=debug` outside tests, the application also appends JSON Lines logs to `logs/gg-dev.log` in the project root. This is the primary place to inspect a noisy local review run after the terminal scrollback becomes unwieldy.
+
+### Adding a logger to a new module
+
+```typescript
+import { getLogger } from "../logger"; // adjust relative path as needed
+
+const logger = getLogger(["gandalf", "<module>"]);
+
+// Simple message
+logger.info("Thing happened");
+
+// Structured properties — prefer this over string interpolation
+logger.info("Review complete", { verdict, findings: count });
+
+// Error handling — always extract message
+logger.error("Failed to post comment", { error: err instanceof Error ? err.message : String(err) });
+```
+
+### Category naming
+
+All loggers root at `"gandalf"`. Sub-categories follow the module hierarchy:
+
+| Module | Category |
+|---|---|
+| `src/api/router.ts` | `["gandalf", "router"]` |
+| `src/api/pipeline.ts` | `["gandalf", "pipeline"]` |
+| `src/agents/orchestrator.ts` | `["gandalf", "orchestrator"]` |
+| `src/publisher/gitlab-publisher.ts` | `["gandalf", "publisher"]` |
+
+### Request correlation
+
+`withContext()` propagates values to all log lines emitted within the async call stack:
+
+```typescript
+import { withContext } from "../logger";
+
+// In the router, wrapping the pipeline call:
+withContext({ requestId }, () => { runPipeline(event); });
+
+// In the pipeline, enriching with MR identity:
+await withContext({ projectId, mrIid }, async () => { /* ... */ });
+```
+
+All downstream log lines — including those in orchestrator and publisher — automatically carry `requestId`, `projectId`, and `mrIid`.
+
+### Level guide
+
+- `debug` — verbose internal state (tool calls, agent stages, filtered items)
+- `info` — key lifecycle events (pipeline start/end, review verdict)
+- `warn` — recoverable issues (non-diff findings skipped, validation failures)
+- `error` — failures that need investigation (unhandled pipeline errors, failed comment posts)
+
 ## Core commands
 
 ```bash
@@ -47,7 +104,7 @@ Current tests:
 - `tests/tools.test.ts`: tool sandboxing, formatting, directory tree output, ripgrep integration, dispatcher validation
 - `tests/repo-manager.test.ts`: cache path, TTL cleanup, SSRF host validation
 
-The current suite totals 48 passing tests.
+The current suite totals 113 passing tests and includes dedicated logger coverage.
 
 ## Working on tools
 

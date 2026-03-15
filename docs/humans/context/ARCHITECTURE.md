@@ -1,6 +1,6 @@
 # Architecture
 
-GitGandalf is a Bun-native webhook service that is being built in phases. As of Phase 3, the repository contains a complete webhook ingestion layer, a typed GitLab client, a repo cache manager, a modular tool execution surface, and a standalone multi-agent review subsystem. The remaining gap is wiring that review subsystem into the API pipeline and publishing results back to GitLab.
+GitGandalf is a Bun-native webhook service built in phases. The current repository includes the full webhook-to-review-to-publish path: webhook ingestion, typed GitLab access, repo cache management, modular tool execution, the multi-agent review subsystem, GitLab publishing, deployment packaging, and structured logging with request correlation.
 
 For the concise agent-optimized version, see [`docs/agents/context/ARCHITECTURE.md`](../../agents/context/ARCHITECTURE.md).
 
@@ -13,20 +13,15 @@ graph TD
 	C --> D{Secret + Zod validation}
 	D -->|invalid| E[400 or 401 response]
 	D -->|ignored event| F[200 Ignored]
-	D -->|accepted event| G[runPipeline stub]
-	G --> H[console log only]
+	D -->|accepted event| G[runPipeline fire-and-forget]
+	G --> GA[withContext requestId + projectId + mrIid]
+	GA --> H[Fetch MR data + clone repo]
+	H --> I[runReview agents]
+	I --> J[publish inline comments + summary]
+	J --> K[LogTape JSON Lines to stdout]
 
-	I[RepoManager] --> J[shallow clone/update cache]
-	K[Tool Barrel] --> L[read_file]
-	K --> M[search_codebase]
-	K --> N[get_directory_structure]
-
-	O[Standalone ReviewState input] --> P[contextAgent]
-	P --> Q[investigatorLoop]
-	Q --> K
-	Q --> R[reflectionAgent]
-	R -->|needsReinvestigation| Q
-	R --> S[summaryVerdict + verifiedFindings]
+	L[src/logger.ts] --> M[configure LogTape JSON sink]
+	M --> N[LOG_LEVEL filter + AsyncLocalStorage ctx]
 ```
 
 ## Directory Structure
@@ -42,12 +37,13 @@ git-gandalf/
 ├── bunfig.toml                     # Bun-specific config (optional)
 ├── README.md
 ├── src/
-│   ├── index.ts                    # Hono app entrypoint + server bootstrap
+│   ├── index.ts                    # Hono app entrypoint + server bootstrap, calls initLogging()
+│   ├── logger.ts                   # LogTape configuration: initLogging(), getLogger/withContext re-exports
 │   ├── config.ts                   # Env vars via Zod-validated process.env
 │   ├── api/
 │   │   ├── router.ts               # Webhook + health route definitions
 │   │   ├── schemas.ts              # Zod schemas for GitLab webhook payloads
-│   │   └── pipeline.ts             # Typed pipeline entry-point stub (filled in Phase 2–4)
+│   │   └── pipeline.ts             # Full pipeline: fetch MR data, clone repo, run agents, publish findings
 │   ├── gitlab-client/
 │   │   ├── client.ts               # @gitbeaker/rest wrapper (fetch MR, diff, discussions)
 │   │   └── types.ts                # TypeScript types for GitLab data (MRDetails, DiffFile, etc.)
@@ -84,23 +80,34 @@ git-gandalf/
 | Area | Current Status | Owning Phase | Notes |
 |---|---|---|---|
 | `src/index.ts`, `src/api/`, `src/config.ts` | Implemented | Phase 1 | Webhook ingress, health endpoint, strict payload validation, and config loading are live. |
+| `src/logger.ts` | Implemented | Logging plan | Structured JSON logging via LogTape; `LOG_LEVEL` wired; request correlation via `withContext()`. |
 | `src/gitlab-client/` | Implemented | Phase 1 | Typed GitLab wrapper exists, including read and write methods needed by later phases. |
 | `src/context/repo-manager.ts` | Implemented | Phase 2 | Shallow clone/update cache manager with TTL cleanup and host validation. |
 | `src/context/tools/` | Implemented | Phase 2 and 2.5 | Tool surface exists and was modularized in Phase 2.5 into one file per tool. |
-| `src/agents/` | Implemented | Phase 3 | Shared state, Bedrock client wrapper, context agent, investigator agent, reflection agent, and orchestrator are implemented as a standalone subsystem. |
-| `src/publisher/` | Planned | Phase 4 | GitLab publisher for inline comments and summary comment is not implemented yet. |
-| `Dockerfile`, `docker-compose.yml`, top-level `README.md` | Planned | Phase 4 | Deployment packaging and end-user project documentation remain open. |
+| `src/agents/` | Implemented | Phase 3 | Shared state, Bedrock client wrapper, context agent, investigator agent, reflection agent, and orchestrator are implemented and invoked by the API pipeline. |
+| `src/publisher/` | Implemented | Phase 4 | GitLab publisher posts inline comments and a summary comment, with duplicate detection and diff-position anchoring. |
+| `Dockerfile`, `docker-compose.yml`, top-level `README.md` | Implemented | Phase 4 | Deployment packaging and end-user project documentation are present in the repository. |
 | `tests/webhook.test.ts` | Implemented | Phase 1 | Covers auth, filtering, invalid payloads, and strict schema behavior. |
 | `tests/tools.test.ts`, `tests/repo-manager.test.ts` | Implemented | Phase 2 and 2.5 | Covers tool sandboxing, search and tree behavior, repo cache cleanup, and SSRF guard behavior. |
 | `tests/agents.test.ts`, `tests/agents-entrypoints.test.ts` | Implemented | Phase 3 | Covers prompt builders/parsers, orchestrator control flow, and direct agent entrypoints with mocked LLM responses. |
-| `tests/publisher.test.ts` | Planned | Phase 4 | Reserved for GitLab publishing coverage. |
+| `tests/publisher.test.ts` | Implemented | Phase 4 | Covers comment formatting, duplicate detection, diff anchoring, error continuation, and summary-note posting. |
 
 ## Implemented Components
 
 ### Hono server
 
-- `src/index.ts` creates the app, enables request logging, mounts `/api/v1`, and exports Bun server config.
+- `src/index.ts` creates the app, calls `initLogging()`, enables structured HTTP request logging via `@logtape/hono` middleware (JSON Lines, health check excluded), mounts `/api/v1`, and exports Bun server config.
 - `GET /api/v1/health` returns `{ status: "ok", timestamp }`.
+
+### Structured logging
+
+`src/logger.ts` is the single logging configuration module.
+
+- **Library**: LogTape (`@logtape/logtape` + `@logtape/hono`) — zero dependencies, Bun-native Web APIs, first-party Hono middleware.
+- **Output**: JSON Lines to stdout via `getConsoleSink({ formatter: jsonLinesFormatter })`. When `LOG_LEVEL=debug` outside tests, the same records are also appended to `logs/gg-dev.log` in the project root.
+- **Level control**: `config.LOG_LEVEL` maps to LogTape's `lowestLevel` on the root `["gandalf"]` category. All child categories (`["gandalf", "router"]`, `["gandalf", "orchestrator"]`, etc.) inherit it automatically.
+- **Request correlation**: `requestId` is generated in the router via `Bun.randomUUIDv7()`. Both the router and pipeline call `withContext()` to set `requestId`, `projectId`, and `mrIid` as implicit context via `AsyncLocalStorage`. Every log line emitted anywhere in the pipeline carries these fields without explicit passing.
+- **Future sinks**: Adding `@logtape/otel` or `@logtape/sentry` only requires adding a new sink to `initLogging()` — no call-site changes.
 
 ### Webhook router
 
@@ -142,7 +149,7 @@ The wrapper also handles gitbeaker’s awkward snake_case response shapes and ca
 
 ### Repo cache manager
 
-`src/context/repo-manager.ts` is the first piece of the future context engine.
+`src/context/repo-manager.ts` is the repo access layer used by the current review pipeline.
 
 - repo cache path: `<REPO_CACHE_DIR>/<projectId>`
 - first-time path: `git clone --depth 1 --branch <branch>`
@@ -163,7 +170,7 @@ Phase 2.5 split the original monolithic `src/context/tools.ts` into per-tool mod
 
 This keeps each tool independently testable and makes the public API surface explicit in one place.
 
-### Standalone agent review subsystem
+### Agent review subsystem
 
 Phase 3 adds the review logic itself under `src/agents/`.
 
@@ -174,25 +181,25 @@ Phase 3 adds the review logic itself under `src/agents/`.
 - `reflection-agent.ts` filters noise and assigns the review verdict
 - `orchestrator.ts` coordinates the three stages and allows one reinvestigation loop
 
-This review subsystem is implemented and testable on its own, but it is not yet wired to fetch GitLab data automatically or publish comments.
+This review subsystem is implemented, tested, and wired into the full API pipeline.
 
 ## What Is Still Planned
 
 The target architecture in the master plan goes further than the current implementation.
 
-### Phase 4
+### Phase 5+
 
-- publisher that turns verified findings into MR comments
-- full pipeline wiring from webhook → clone → review → publish
-- Docker packaging and top-level README
+- task queue and worker split
+- Kubernetes deployment shape
+- provider fallback and LLM abstraction hardening
 
 ## Why the Design Looks This Way
 
 - Bun is used directly for runtime, subprocesses, and file access to keep the stack small and fast.
 - Zod is used at all external boundaries so invalid inputs fail before they enter core logic.
 - The tool system is split by file so future tools are modular and reusable.
-- The agent subsystem is implemented before the full API wiring so the review engine can be tested independently.
+- The agent subsystem remains independently testable even though it is now wired into the full API pipeline.
 
 ## ELI5
 
-Right now GitGandalf can answer the phone, check who is calling, decide whether the call matters, and it also already has a review brain that can inspect a merge request if you hand it the MR details, diff, and repo path. What it does not do yet is connect those two halves automatically or post comments back to GitLab.
+GitGandalf can receive a webhook, validate it, fire the full multi-agent review pipeline, and post inline comments plus a summary note back to GitLab. Every step emits structured JSON logs to stdout, each carrying the same `requestId` so you can trace a single review end-to-end in any log aggregator.

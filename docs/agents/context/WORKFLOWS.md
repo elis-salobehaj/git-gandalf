@@ -17,8 +17,11 @@ Implemented in `src/api/router.ts`.
 2. parse JSON body
 3. `safeParse()` against `webhookPayloadSchema`
 4. filter unsupported events
-5. call `runPipeline(event)` without awaiting
-6. return `202 Accepted`
+5. generate `requestId` via `Bun.randomUUIDv7()` and propagate via LogTape `withContext()`
+6. call `runPipeline(event)` without awaiting
+7. return `202 Accepted`
+
+HTTP request/response logging is handled automatically by `@logtape/hono` middleware and emits structured JSON Lines to stdout. Health check requests are excluded from logging.
 
 ### Response codes
 
@@ -53,16 +56,12 @@ Implemented in `src/context/tools/index.ts` and per-tool modules.
 - `search_codebase`
 - `get_directory_structure`
 
-## 4. Current Pipeline Boundary
+## 4. Full Pipeline
 
-`src/api/pipeline.ts` is still a stub. The current workflow ends at logging:
+`src/api/pipeline.ts` is the full end-to-end pipeline: fetch MR data → clone repo → run agents → publish findings.
+All pipeline logs emit structured JSON under `["gandalf", "pipeline"]` and carry the implicit `requestId`, `projectId`, and `mrIid` context set by the router and pipeline entry.
 
-- accepted event kind
-- project id
-
-No repo clone, Bedrock call, or GitLab publishing occurs yet.
-
-## 5. Standalone Agent Review Workflow
+## 5. Agent Review Workflow
 
 Implemented in `src/agents/`.
 
@@ -73,8 +72,16 @@ Implemented in `src/agents/`.
 5. `reflectionAgent()` filters the raw findings and assigns a verdict
 6. `orchestrator.ts` allows one reinvestigation round when `needsReinvestigation` is true
 
-The agent subsystem is implemented and tested, but it is not invoked from the API pipeline yet.
+The agent subsystem is implemented and invoked from the API pipeline.
 
-## 6. Planned Handoff to Phase 4
+## 6. Logging & Observability
 
-- Phase 4 will replace the pipeline stub with: fetch MR data → clone repo → run orchestrator → publish comments
+All structured logs are emitted as JSON Lines to stdout via LogTape:
+
+- `["gandalf", "http"]` — HTTP request/response via `@logtape/hono` middleware
+- `["gandalf", "router"]` — webhook auth and validation events
+- `["gandalf", "pipeline"]` — pipeline start/complete
+- `["gandalf", "orchestrator"]` — per-agent-stage progress
+- `["gandalf", "publisher"]` — inline comment posting, duplicates, errors
+
+All log lines in the webhook → pipeline flow carry `requestId`, `projectId`, and `mrIid` automatically via LogTape implicit context.

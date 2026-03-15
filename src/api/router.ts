@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { config } from "../config";
+import { getLogger, withContext } from "../logger";
 import { runPipeline } from "./pipeline";
 import { type WebhookPayload, webhookPayloadSchema } from "./schemas";
+
+const logger = getLogger(["gandalf", "router"]);
 
 export const apiRouter = new Hono();
 
@@ -26,7 +29,7 @@ apiRouter.post("/webhooks/gitlab", async (c) => {
 
   const result = webhookPayloadSchema.safeParse(rawBody);
   if (!result.success) {
-    console.warn("[webhook] Payload validation failed:", result.error.message);
+    logger.warn("Payload validation failed: {error}", { error: result.error.message });
     return c.text("Invalid payload", 400);
   }
 
@@ -52,8 +55,11 @@ apiRouter.post("/webhooks/gitlab", async (c) => {
   }
 
   // 4. Fire-and-forget — return 202 immediately
-  runPipeline(event).catch((err: unknown) => {
-    console.error("[pipeline] Unhandled error:", err);
+  const requestId = Bun.randomUUIDv7();
+  withContext({ requestId }, () => {
+    runPipeline(event).catch((err: unknown) => {
+      logger.error("Unhandled pipeline error", { error: err instanceof Error ? err.message : String(err) });
+    });
   });
 
   return c.text("Accepted", 202);

@@ -6,6 +6,9 @@
 import type { Finding } from "../agents/state";
 import type { GitLabClient } from "../gitlab-client/client";
 import type { DiffFile, Discussion } from "../gitlab-client/types";
+import { getLogger } from "../logger";
+
+const logger = getLogger(["gandalf", "publisher"]);
 
 // ---------------------------------------------------------------------------
 // Formatting helpers — exported so they can be unit-tested without a client
@@ -169,14 +172,21 @@ export class GitLabPublisher {
     for (const finding of findings) {
       const inlineLine = resolveInlineLine(finding, publishableLines);
       if (inlineLine === null) {
-        console.warn(
-          `[publisher] Skipping non-diff finding: ${finding.title} @ ${finding.file}:${finding.lineStart}-${finding.lineEnd}`,
-        );
+        logger.warn("Skipping non-diff finding", {
+          title: finding.title,
+          file: finding.file,
+          lineStart: finding.lineStart,
+          lineEnd: finding.lineEnd,
+        });
         continue;
       }
 
       if (this.isDuplicate(finding, existing)) {
-        console.log(`[publisher] Skipping duplicate finding: ${finding.title} @ ${finding.file}:${finding.lineStart}`);
+        logger.debug("Skipping duplicate finding", {
+          title: finding.title,
+          file: finding.file,
+          lineStart: finding.lineStart,
+        });
         continue;
       }
 
@@ -189,7 +199,10 @@ export class GitLabPublisher {
           newLine: inlineLine,
         });
       } catch (error) {
-        console.warn(`[publisher] Failed to post finding ${finding.title}:`, error);
+        logger.error("Failed to post finding", {
+          title: finding.title,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }
