@@ -4,8 +4,8 @@ This directory contains fuller, narrative documentation for engineers reading th
 
 ## Available Docs
 
-- [Architecture](./context/ARCHITECTURE.md) — current implemented system including logging/observability, target phased architecture, and rationale for the current boundaries
-- [Design Decisions](./designs/tech-stack-evaluation.md) — broader explanation of the TypeScript/Bun/Hono stack choice
+- [Architecture](./context/ARCHITECTURE.md) — current implemented system including logging, internal protocol boundaries, operational behavior, planned phases, and rationale
+- [Design Decisions](./designs/tech-stack-evaluation.md) — broader explanation of the Bun/Hono/Zod/Bedrock stack choice and why GitGandalf owns its own agent contract
 
 ## Suggested Reading Order
 

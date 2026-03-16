@@ -1,16 +1,17 @@
 import { resolve } from "node:path";
 import { z } from "zod";
+import type { AgentToolDefinition } from "../../agents/protocol";
 import { assertInsideRepo } from "./shared";
 
 // ---------------------------------------------------------------------------
-// Tool definition (Anthropic tool_use schema format)
+// Tool definition (GitGandalf internal tool schema)
 // ---------------------------------------------------------------------------
 
-export const toolDefinition = {
+export const toolDefinition: AgentToolDefinition = {
   name: "read_file",
   description:
     "Read a file's contents from the cloned repository. Returns up to 500 lines with 1-based line numbers prepended. The path must be relative to the repository root.",
-  input_schema: {
+  inputSchema: {
     type: "object" as const,
     properties: {
       path: {

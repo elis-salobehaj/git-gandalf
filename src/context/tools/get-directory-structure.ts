@@ -2,17 +2,18 @@ import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import type { AgentToolDefinition } from "../../agents/protocol";
 import { assertInsideRepo } from "./shared";
 
 // ---------------------------------------------------------------------------
-// Tool definition (Anthropic tool_use schema format)
+// Tool definition (GitGandalf internal tool schema)
 // ---------------------------------------------------------------------------
 
-export const toolDefinition = {
+export const toolDefinition: AgentToolDefinition = {
   name: "get_directory_structure",
   description:
     "Get a tree-style directory listing of the repository (max depth 3). Common build and tooling directories (.git, node_modules, dist, etc.) are omitted automatically.",
-  input_schema: {
+  inputSchema: {
     type: "object" as const,
     properties: {
       path: {

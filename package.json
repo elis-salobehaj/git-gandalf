@@ -21,8 +21,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/bedrock-sdk": "latest",
-    "@aws-sdk/credential-providers": "latest",
+    "@aws-sdk/client-bedrock-runtime": "latest",
     "@gitbeaker/rest": "latest",
     "@logtape/hono": "^2.0.4",
     "@logtape/logtape": "^2.0.4",

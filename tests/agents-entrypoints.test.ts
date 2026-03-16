@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Message } from "@anthropic-ai/sdk/resources/messages";
+import type { AgentResponse } from "../src/agents/protocol";
 import type { ReviewState } from "../src/agents/state";
 
 const SANDBOX = join(import.meta.dir, "__temp_agents_entrypoints_sandbox__");
@@ -64,20 +64,22 @@ function makeBaseState(): ReviewState {
   };
 }
 
-function makeAssistantMessage(content: unknown[]): Message {
+function makeAssistantMessage(
+  content:
+    | { type: "text"; text: string }[]
+    | { type: "tool_call"; id: string; name: string; input: Record<string, unknown> }[],
+): AgentResponse {
   return {
-    id: "msg_test",
-    type: "message",
-    role: "assistant",
-    content,
-    model: "claude-test",
-    stop_reason: "end_turn",
-    stop_sequence: null,
-  } as Message;
+    message: {
+      role: "assistant",
+      content,
+    },
+    stopReason: "end_turn",
+  };
 }
 
 const mockChatCompletion = mock(
-  async (): Promise<Message> =>
+  async (): Promise<AgentResponse> =>
     makeAssistantMessage([
       {
         type: "text",
@@ -139,7 +141,7 @@ describe("investigatorLoop", () => {
       .mockResolvedValueOnce(
         makeAssistantMessage([
           {
-            type: "tool_use",
+            type: "tool_call",
             id: "tool_1",
             name: "read_file",
             input: { path: "src/billing.ts" },
@@ -202,6 +204,49 @@ describe("investigatorLoop", () => {
     expect(mockChatCompletion).toHaveBeenCalledTimes(1);
     expect(result.rawFindings).toEqual([]);
     expect(result.messages).toHaveLength(2);
+  });
+
+  it("continues when a tool call fails and passes the error back as a tool result", async () => {
+    mockChatCompletion.mockReset();
+
+    mockChatCompletion
+      .mockResolvedValueOnce(
+        makeAssistantMessage([
+          {
+            type: "tool_call",
+            id: "tool_missing",
+            name: "read_file",
+            input: { path: "docs/patterns/configuration.md" },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        makeAssistantMessage([
+          {
+            type: "text",
+            text: "[]",
+          },
+        ]),
+      );
+
+    const result = await investigatorLoop({
+      ...makeBaseState(),
+      mrIntent: "Check documentation links.",
+      changeCategories: ["documentation"],
+      riskAreas: ["Verify referenced files exist."],
+    });
+
+    expect(mockChatCompletion).toHaveBeenCalledTimes(2);
+    expect(result.rawFindings).toEqual([]);
+    expect(result.messages).toHaveLength(4);
+
+    const toolResultMessage = result.messages[2];
+    expect(toolResultMessage.role).toBe("user");
+    expect(toolResultMessage.content[0]).toMatchObject({
+      type: "tool_result",
+      toolCallId: "tool_missing",
+      isError: true,
+    });
   });
 });
 

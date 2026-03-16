@@ -146,7 +146,7 @@ The GG wizard persona is a runtime asset consumed by the LLM agent pipeline. It 
 
 ### The Standard
 
-[Agent Skills](https://agentskills.io) is an Anthropic-backed open standard for extending AI agents. It defines a universal format for packaging reusable knowledge, workflows, and scripts.
+[Agent Skills](https://agentskills.io) is an open standard for extending AI agents. It defines a universal format for packaging reusable knowledge, workflows, and scripts.
 
 ### Cross-IDE Discovery
 
@@ -252,7 +252,7 @@ high-signal inline review comments.
 - **Framework**: Hono (ultralight, Web Standards)
 - **Language**: TypeScript (strict mode)
 - **Validation**: Zod (all schemas, env config, API payloads)
-- **LLM**: AWS Bedrock via @anthropic-ai/bedrock-sdk (Claude Sonnet 4)
+- **LLM**: AWS Bedrock via @aws-sdk/client-bedrock-runtime (Claude Sonnet 4 via Converse; current implementation keeps provider details behind an internal GitGandalf protocol)
 - **GitLab Client**: @gitbeaker/rest
 - **Linting/Formatting**: Biome (replaces ESLint + Prettier)
 

@@ -1,8 +1,8 @@
 import type {
-  CommitDiffSchema,
   DiscussionNotePositionBaseSchema,
   DiscussionNotePositionTextSchema,
   DiscussionNoteSchema,
+  MergeRequestDiffSchema,
 } from "@gitbeaker/core";
 import { Gitlab } from "@gitbeaker/rest";
 import { config } from "../config";
@@ -49,14 +49,12 @@ export class GitLabClient {
 
   // ---------------------------------------------------------------------------
   // Diff files
-  // showChanges() verified via Bun runtime inspection. Returns an object with
-  // a `changes` field typed as CommitDiffSchema[]. Casting via unknown to
-  // resolve the Camelize<T> union that breaks .map() at the type level.
+  // allDiffs() returns the MR diffs directly and avoids the deprecated
+  // showChanges() helper.
   // ---------------------------------------------------------------------------
 
   async getMRDiff(projectId: number, mrIid: number): Promise<DiffFile[]> {
-    const result = await this.api.MergeRequests.showChanges(projectId, mrIid);
-    const changes = (result.changes ?? []) as unknown as CommitDiffSchema[];
+    const changes = (await this.api.MergeRequests.allDiffs(projectId, mrIid)) as unknown as MergeRequestDiffSchema[];
 
     return changes.map((c) => ({
       oldPath: c.old_path,

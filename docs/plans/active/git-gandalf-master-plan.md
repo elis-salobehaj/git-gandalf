@@ -5,7 +5,7 @@ priority: high
 estimated_hours: 40-60
 dependencies: []
 created: 2026-03-14
-date_updated: 2026-03-14
+date_updated: 2026-03-15
 
 related_files:
   - package.json
@@ -27,6 +27,7 @@ related_files:
   - src/context/tools/read-file.ts
   - src/context/tools/search-codebase.ts
   - src/context/tools/get-directory-structure.ts
+  - src/agents/protocol.ts
   - src/agents/state.ts
   - src/agents/llm-client.ts
   - src/agents/context-agent.ts
@@ -76,11 +77,22 @@ completion:
   - [x] 4.3 `Dockerfile`
   - [x] 4.4 `docker-compose.yml`
   - [x] 4.5 `README.md`
-  - "# Phase 5+ — Production Hardening (Future)"
+  - "# Phase 4.5 — Ticket Context Integration"
+  - [ ] 4.5.1 Jira provider configuration and Zod validation
+  - [ ] 4.5.2 Jira client for ticket fetch + normalization
+  - [ ] 4.5.3 Pipeline enrichment with linked ticket context
+  - [ ] 4.5.4 Agent prompt updates to consume ticket context
+  - [ ] 4.5.5 Tests + docs for Jira setup and failure modes
+  - "# Phase 4.6 — GitLab SaaS + Self-Hosted Compatibility"
+  - [ ] 4.6.1 Add `GITLAB_SELF_HOSTED` env flag and config validation
+  - [ ] 4.6.2 Normalize clone/API behavior for GitLab.com and self-hosted instances
+  - [ ] 4.6.3 Document supported auth and URL combinations
+  - "# Phase 5 — Production Hardening (Future)"
   - [ ] 5.1 Task Queue (BullMQ + Valkey)
   - [ ] 5.2 Kubernetes (KinD / EKS / GKE)
   - [ ] 5.3 LLM Fallback (OpenAI / Google)
-  - [ ] 5.4 LLM Abstraction (Vercel AI SDK)
+  - [x] 5.4 Internal LLM Contract (provider-agnostic agent schema)
+  - [ ] 5.5 Optional Adapter Evaluation (Vercel AI SDK or direct SDKs)
 ---
 # GitGandalf — Master Implementation Plan
 
@@ -88,7 +100,7 @@ completion:
 >
 > This is the definitive implementation plan for GitGandalf (GG) — a self-hosted, multi-agent code review service that intercepts GitLab MR events, deeply reasons about code changes using LLM-powered agents with tool-calling capabilities, and posts high-signal, inline review comments back to the MR.
 >
-> **Reference**: See [tech-stack-evaluation-design-choices.md](tech-stack-evaluation-design-choices.md) for the full Python vs TypeScript ecosystem analysis that led to this decision.
+> **Reference**: See [docs/humans/designs/tech-stack-evaluation.md](../../humans/designs/tech-stack-evaluation.md) for the broader stack decision record.
 
 ---
 
@@ -98,15 +110,15 @@ completion:
 |---|---|---|
 | **Runtime** | **Bun** | Single binary: runtime + package manager + bundler + test runner. Fast startup (~100ms), `posix_spawn(3)` for subprocesses, native `Bun.file()` for zero-copy file reads. |
 | **Web Framework** | **Hono** | Ultralight (~20KB), Web Standards-based, 111K+ req/s on Bun. First-class TypeScript. Zod integration via `@hono/zod-validator`. |
-| **LLM Provider** | **AWS Bedrock** via `@anthropic-ai/bedrock-sdk` | Claude Sonnet 4 primary. Uses familiar Anthropic Messages API (tool_use support) routed through Bedrock IAM auth. Fallback: OpenAI/Google API keys in Phase 5+. |
+| **LLM Provider** | **AWS Bedrock** via `@aws-sdk/client-bedrock-runtime` | Claude Sonnet 4 primary. Uses the Bedrock Converse API with bearer-token auth in the current implementation. Fallback: OpenAI/Google API keys in Phase 5. |
 | **Agent Orchestration** | **Custom state-machine orchestrator** (~250 LOC) | GG's 3-agent pipeline is a linear graph with 2 small loops — simple enough that LangGraph.js adds complexity without proportional value. Custom code is more debuggable, zero-dependency, and fully typed. |
-| **LLM Abstraction** | **Direct SDK** (Phases 1-4) | Use `@anthropic-ai/bedrock-sdk` directly. Defer multi-provider abstraction (Vercel AI SDK) to Phase 6+. |
+| **LLM Abstraction** | **GitGandalf-owned internal contract** | Keep provider-specific SDK details behind an internal message/tool contract. Use direct AWS Bedrock Runtime integration today; evaluate Vercel AI SDK later only as an adapter implementation, not as the app's core domain boundary. |
 | **GitLab API Client** | **`@gitbeaker/rest`** | Actively maintained (v43.8+), fully typed, comprehensive GitLab API coverage. Works on Bun natively. |
 | **Git Operations** | **`Bun.spawn()`** + native Git CLI | Pragmatic: `posix_spawn(3)` is the fastest subprocess model. Uses system `git` and `ripgrep` (trivial Docker install). Avoids `isomorphic-git` overhead and `simple-git` unnecessary abstraction. `Bun.file().text()` for zero-copy file reads. |
 | **Validation** | **Zod** | Runtime type validation + static type inference. TypeScript-native Pydantic equivalent. |
-| **Task Queue (Phase 5+)** | **BullMQ** (MIT) + **Valkey** | BullMQ explicitly supports Valkey. Use `iovalkey` (100% TS Redis/Valkey client). Open-source only. |
+| **Task Queue (Phase 5)** | **BullMQ** (MIT) + **Valkey** | BullMQ explicitly supports Valkey. Use `iovalkey` (100% TS Redis/Valkey client). Open-source only. |
 | **Deployment (Phase 1-4)** | **Docker Compose** | Simple, reproducible, self-contained. |
-| **Deployment (Phase 5+)** | **Kubernetes** | Start with KinD for local dev. Keep EKS/GKE parity in mind from the start. |
+| **Deployment (Phase 5)** | **Kubernetes** | Start with KinD for local dev. Keep EKS/GKE parity in mind from the start. |
 
 > [!TIP]
 > **Why Custom Orchestrator over LangGraph.js?** GG's pipeline is a linear graph with 2 controlled loops (Agent 2 ↔ Tools, Agent 3 → Agent 2 re-investigation). A custom orchestrator gives full control, zero framework overhead, and is easier to debug. LangGraph.js is a second-class citizen in the LangChain ecosystem (Python-first docs, features lag). The ~250 lines of custom code are simpler than the LangGraph dependency tree.
@@ -174,8 +186,9 @@ git-gandalf/
 │   │       └── get-directory-structure.ts  # get_directory_structure tool definition + implementation
 │   ├── agents/
 │   │   ├── orchestrator.ts         # Custom state-machine pipeline (runReview entrypoint)
+│   │   ├── protocol.ts             # Internal GitGandalf agent message/tool contract
 │   │   ├── state.ts                # ReviewState type + Finding type definitions
-│   │   ├── llm-client.ts           # Bedrock/Anthropic SDK wrapper + tool-call helpers
+│   │   ├── llm-client.ts           # Bedrock Runtime adapter behind the internal contract
 │   │   ├── context-agent.ts        # Agent 1: Context & Intent Mapper
 │   │   ├── investigator-agent.ts   # Agent 2: Socratic Investigator (tool loop)
 │   │   └── reflection-agent.ts     # Agent 3: Reflection & Consolidation
@@ -201,7 +214,7 @@ Stand up the Hono server on Bun, parse GitLab webhook payloads, and fetch MR dat
 ---
 
 #### [DONE] `package.json`
-- **Dependencies**: `hono`, `@gitbeaker/rest`, `@anthropic-ai/bedrock-sdk`, `@aws-sdk/credential-providers`, `zod`
+- **Dependencies**: `hono`, `@gitbeaker/rest`, `@aws-sdk/client-bedrock-runtime`, `zod`
 - **Dev dependencies**: `@types/bun`, `typescript`, `@biomejs/biome`
 - **Scripts**:
   ```json
@@ -243,9 +256,10 @@ Stand up the Hono server on Bun, parse GitLab webhook payloads, and fetch MR dat
 #### [DONE] `.agents/skills/bun-project-conventions/SKILL.md`
 - Agent skill (open standard) teaching agents to use Bun-native APIs and conventions.
 
-#### Zod Strict Usage Policy
+#### Zod Usage Policy
 - **All external data boundaries** use Zod: env config, webhook payloads, LLM responses.
-- **`z.object().strict()`** on schemas where unexpected keys must be rejected.
+- Use **closed schemas** when unexpected keys should be rejected.
+- Use **permissive schemas** for provider payloads like GitLab webhooks when the app only depends on a required subset of fields.
 - **No `as` type casts** for external data — always `.parse()` or `.safeParse()`.
 - **Export inferred types**: `type Config = z.infer<typeof configSchema>`.
 
@@ -273,7 +287,7 @@ MAX_SEARCH_RESULTS=100
 # Service
 REPO_CACHE_DIR=/tmp/repo_cache
 LOG_LEVEL=info
-PORT=8000
+PORT=8020
 ```
 
 #### [DONE] `.gitignore`
@@ -296,7 +310,7 @@ const envSchema = z.object({
   MAX_SEARCH_RESULTS: z.coerce.number().int().positive().default(100),
   REPO_CACHE_DIR: z.string().default('/tmp/repo_cache'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  PORT: z.coerce.number().default(8000),
+  PORT: z.coerce.number().default(8020),
 });
 
 export type Config = z.infer<typeof envSchema>;
@@ -311,12 +325,13 @@ export const config = envSchema.parse(process.env);
   - `mergeRequestEventSchema` — `object_kind`, `event_type`, `project` (id, web_url, path_with_namespace), `object_attributes` (iid, title, description, source_branch, target_branch, action, url).
   - `noteEventSchema` — for comment-triggered reviews (`/ai-review`).
   - `webhookPayloadSchema` — discriminated union of both.
+- Current implementation uses permissive object schemas (`.loose()`) so real GitLab payloads with extra keys are accepted while required fields remain validated.
 
 #### [DONE] `src/api/router.ts`
 - `POST /webhooks/gitlab`:
   1. Verify `X-Gitlab-Token` header against `config.GITLAB_WEBHOOK_SECRET`.
   2. Parse payload with Zod schemas.
-  3. Filter: only process `action in ["open", "update"]` or note body containing `/ai-review`.
+  3. Filter: only process `action in ["open", "update", "reopen"]` or note body containing `/ai-review` on a merge request.
   4. Fire-and-forget the review pipeline (async, don't await — return immediately).
   5. Return `202 Accepted`.
 - `GET /health` — health check returning `{ status: 'ok', timestamp }`.
@@ -325,9 +340,9 @@ export const config = envSchema.parse(process.env);
 - TypeScript interfaces: `MRDetails`, `DiffFile`, `DiffHunk`, `Discussion`, `Note`.
 
 #### [DONE] `src/api/pipeline.ts`
-- Typed entry-point stub that `router.ts` imports for its fire-and-forget call.
-- Signature: `runPipeline(event: WebhookPayload): Promise<void>`. Phase 2–4 replace the body with the full orchestration chain.
-- Keeps the router free of Phase 2+ concerns while satisfying the TypeScript import at Phase 1.
+- Full async pipeline behind the router fire-and-forget call.
+- Signature: `runPipeline(event: WebhookPayload): Promise<void>`.
+- Current implementation fetches MR metadata and diffs, clones or updates the repo cache, runs the review orchestrator, publishes inline findings plus the summary note, and logs the final verdict.
 
 #### [DONE] `src/gitlab-client/client.ts`
 - Thin wrapper around `@gitbeaker/rest`:
@@ -416,7 +431,7 @@ for all future tool additions.
 | File | Purpose |
 |---|---|
 | `shared.ts` | `SearchResult` interface and `assertInsideRepo()` path-traversal guard shared across tools |
-| `read-file.ts` | `read_file` Anthropic tool definition, Zod `inputSchema`, and `readFile()` implementation |
+| `read-file.ts` | `read_file` internal tool definition, Zod `inputSchema`, and `readFile()` implementation |
 | `search-codebase.ts` | `search_codebase` definition, `inputSchema`, `searchCodebase()`, and ripgrep NDJSON parser |
 | `get-directory-structure.ts` | `get_directory_structure` definition, `inputSchema`, `getDirectoryStructure()`, `IGNORED_DIRS`, and `buildTree()` |
 | `index.ts` | Public API barrel: aggregates `TOOL_DEFINITIONS[]`, hosts `executeTool()` dispatcher, re-exports all public symbols |
@@ -472,35 +487,36 @@ export interface ReviewState {
   summaryVerdict: 'APPROVE' | 'REQUEST_CHANGES' | 'NEEDS_DISCUSSION';
 
   // Internal
-  messages: Message[];
+  messages: AgentMessage[];
   reinvestigationCount: number;
   needsReinvestigation: boolean;
 }
 ```
 
-#### [NEW] `src/agents/llm-client.ts`
-- Bedrock/Anthropic SDK wrapper:
-```typescript
-import AnthropicBedrock from '@anthropic-ai/bedrock-sdk';
-import { config } from '../config';
+#### [NEW] `src/agents/protocol.ts`
+- GitGandalf-owned canonical agent contract used across the pipeline.
+- Defines the app's internal message, tool-call, tool-result, and stop-reason shapes.
+- Provider SDKs adapt to and from this contract instead of becoming the app's domain model.
 
-export const llm = new AnthropicBedrock({
-  awsRegion: config.AWS_REGION,
-  // Uses default credential chain: env vars → IAM role → instance profile
+#### [NEW] `src/agents/llm-client.ts`
+- AWS Bedrock Runtime Converse adapter behind the internal contract:
+```typescript
+import { BedrockRuntimeClient, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
+import { config } from '../config';
+import type { AgentMessage, AgentResponse } from './protocol';
+
+export const llm = new BedrockRuntimeClient({
+  region: config.AWS_REGION,
+  token: async () => ({ token: config.AWS_BEARER_TOKEN_BEDROCK }),
 });
 
 export async function chatCompletion(
   systemPrompt: string,
-  messages: Message[],
+  messages: AgentMessage[],
   tools?: Tool[],
-): Promise<AnthropicMessage> {
-  return llm.messages.create({
-    model: config.LLM_MODEL,
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages,
-    ...(tools ? { tools } : {}),
-  });
+): Promise<AgentResponse> {
+  const response = await llm.send(new ConverseCommand({ ... }));
+  return mapConverseResponseToAgentResponse(response);
 }
 ```
 
@@ -542,29 +558,36 @@ export async function contextAgent(state: ReviewState): Promise<ReviewState> {
 
 ```typescript
 export async function investigatorLoop(state: ReviewState): Promise<ReviewState> {
-  const messages: Message[] = [
-    { role: 'user', content: buildInvestigatorPrompt(state) },
-  ];
+  const messages: AgentMessage[] = [textMessage('user', buildInvestigatorPrompt(state))];
   let iterations = 0;
 
   while (iterations < config.MAX_TOOL_ITERATIONS) {
     const response = await chatCompletion(
       INVESTIGATOR_SYSTEM_PROMPT, messages, TOOL_DEFINITIONS,
     );
-    messages.push({ role: 'assistant', content: response.content });
+    messages.push(response.message);
 
-    const toolUses = response.content.filter(
-      (block): block is ToolUseBlock => block.type === 'tool_use'
-    );
+    const toolUses = toolCallBlocks(response.message);
 
     if (toolUses.length === 0) break; // Agent chose to stop calling tools
 
     const toolResults = await Promise.all(
-      toolUses.map(async (toolUse) => ({
-        type: 'tool_result' as const,
-        tool_use_id: toolUse.id,
-        content: await executeTool(state.repoPath, toolUse.name, toolUse.input),
-      }))
+      toolUses.map(async (toolUse) => {
+        try {
+          return {
+            type: 'tool_result' as const,
+            toolCallId: toolUse.id,
+            output: await executeTool(state.repoPath, toolUse.name, toolUse.input),
+          };
+        } catch (error) {
+          return {
+            type: 'tool_result' as const,
+            toolCallId: toolUse.id,
+            output: error instanceof Error ? error.message : String(error),
+            isError: true,
+          };
+        }
+      })
     );
 
     messages.push({ role: 'user', content: toolResults });
@@ -601,29 +624,29 @@ import { reflectionAgent } from './reflection-agent';
 import type { ReviewState } from './state';
 
 export async function runReview(initialState: ReviewState): Promise<ReviewState> {
-  console.log('[orchestrator] Starting review pipeline');
+  logger.info('Starting review pipeline');
 
   // Stage 1: Context & Intent
-  console.log('[orchestrator] Agent 1: Context & Intent');
+  logger.info('Running Agent 1: Context & Intent');
   let state = await contextAgent(initialState);
 
   // Stage 2: Investigation (with tool loop)
-  console.log('[orchestrator] Agent 2: Socratic Investigation');
+  logger.info('Running Agent 2: Socratic Investigation');
   state = await investigatorLoop(state);
 
   // Stage 3: Reflection & Consolidation
-  console.log('[orchestrator] Agent 3: Reflection & Consolidation');
+  logger.info('Running Agent 3: Reflection & Consolidation');
   state = await reflectionAgent(state);
 
   // Re-investigation loop (max 1 iteration)
   if (state.needsReinvestigation && state.reinvestigationCount < 1) {
-    console.log('[orchestrator] Re-investigation requested, looping back to Agent 2');
+    logger.info('Re-investigation requested — looping back to Agent 2');
     state.reinvestigationCount++;
     state = await investigatorLoop(state);
     state = await reflectionAgent(state);
   }
 
-  console.log(`[orchestrator] Review complete: ${state.summaryVerdict} (${state.verifiedFindings.length} findings)`);
+  logger.info('Review complete', { verdict: state.summaryVerdict, findings: state.verifiedFindings.length });
   return state;
 }
 ```
@@ -632,7 +655,7 @@ export async function runReview(initialState: ReviewState): Promise<ReviewState>
 graph LR
     START --> A1["contextAgent()"]
     A1 --> A2["investigatorLoop()"]
-    A2 -->|tool_use| TOOL["executeTool()"]
+    A2 -->|tool call| TOOL["executeTool()"]
     TOOL --> A2
     A2 -->|stop_reason: end_turn| A3["reflectionAgent()"]
     A3 -->|needsReinvestigation| A2
@@ -751,7 +774,7 @@ COPY src/ ./src/
 COPY tsconfig.json ./
 
 # Run
-EXPOSE 8000
+EXPOSE 8020
 CMD ["bun", "run", "src/index.ts"]
 ```
 
@@ -762,7 +785,7 @@ services:
     build: .
     env_file: .env
     ports:
-      - "${PORT:-8000}:8000"
+      - "${PORT:-8020}:${PORT:-8020}"
     volumes:
       - repo-cache:/tmp/repo_cache
     restart: unless-stopped
@@ -782,7 +805,79 @@ volumes:
 
 ---
 
-## Phase 5+: Production Hardening (Future)
+## Phase 4.5: Ticket Context Integration
+
+### Goal
+Enrich reviews with real ticket context from Jira so the agents can reason about
+the intended scope, acceptance criteria, and linked implementation details rather
+than relying only on ticket IDs extracted from MR text.
+
+#### [NEW] Jira configuration surface
+- Add optional env vars for Jira integration, validated with Zod:
+  - `JIRA_ENABLED=false`
+  - `JIRA_BASE_URL=https://your-domain.atlassian.net`
+  - `JIRA_EMAIL=<jira-user-email>`
+  - `JIRA_API_TOKEN=<jira-api-token>`
+  - `JIRA_PROJECT_KEYS=ENG,PLATFORM` (optional allow-list)
+- Keep Jira integration disabled by default so current local setups continue to work.
+
+#### [NEW] `src/integrations/jira/client.ts`
+- Thin typed client for Jira issue lookup by key.
+- Normalize Jira responses into a compact internal ticket shape:
+  - `key`
+  - `summary`
+  - `description`
+  - `status`
+  - `issueType`
+  - `priority`
+  - `assignee`
+  - `acceptanceCriteria` when present
+
+#### [MODIFY] `src/api/pipeline.ts`
+- Extract ticket keys from MR title and description.
+- Fetch Jira ticket details when integration is enabled.
+- Pass normalized ticket context into the agent review state.
+- Degrade safely: log and continue if Jira is unavailable or a ticket lookup fails.
+
+#### [MODIFY] agent prompts and state
+- Extend review state with `linkedTickets`.
+- Update Agent 1 and Agent 2 prompts so they compare the MR against ticket scope,
+  expected behavior, and acceptance criteria.
+- Treat ticket context as supporting evidence, not a hard blocker when absent.
+
+#### [NEW] verification for Phase 4.5
+- Unit tests for Jira config validation, ticket-key extraction, response normalization,
+  and pipeline behavior when Jira is disabled or unavailable.
+- Guide updates covering Jira token creation, env setup, and troubleshooting.
+
+---
+
+## Phase 4.6: GitLab SaaS + Self-Hosted Compatibility
+
+### Goal
+Support both GitLab.com and self-hosted GitLab instances with explicit,
+documented configuration so the same codebase can run in either environment.
+
+#### [MODIFY] configuration
+- Add `GITLAB_SELF_HOSTED=true` to `.env.example` and `src/config.ts`.
+- Use the flag to document and validate deployment expectations rather than infer
+  them implicitly from the URL alone.
+
+#### [MODIFY] GitLab integration path
+- Verify API and clone flows work against both GitLab.com and self-hosted hosts.
+- Keep host validation for token-injected clone URLs, but ensure the expected host
+  logic is compatible with both deployment models.
+- Document any auth differences that matter operationally.
+
+#### [NEW] documentation and tests
+- Add setup examples for:
+  - GitLab.com with `GITLAB_SELF_HOSTED=false`
+  - self-hosted GitLab with `GITLAB_SELF_HOSTED=true`
+- Add tests around config parsing and host validation behavior.
+
+---
+
+## Phase 5: Production Hardening (Future)
 
 > [!NOTE]
 > These are deferred features, listed here for architectural awareness during Phase 1-4 implementation.
@@ -804,9 +899,14 @@ volumes:
 - Add **OpenAI** and **Google** API keys as fallback providers.
 - Implement provider rotation/fallback logic when Bedrock is unavailable.
 
-### LLM Abstraction (Phase 6+)
-- Adopt **Vercel AI SDK** (`ai` package) for unified multi-provider interface.
-- Or evaluate the landscape at that time — the TS AI ecosystem is evolving rapidly.
+### Internal LLM Contract (Phase 5.4)
+- Introduce a GitGandalf-owned canonical schema for messages, tool calls, tool results, stop reasons, and any future usage metadata.
+- Refactor the agent pipeline to depend on this internal contract instead of a provider SDK's message types.
+- Keep provider-specific conversions isolated inside adapter modules such as `src/agents/llm-client.ts`.
+
+### Optional Adapter Evaluation (Phase 5.5)
+- Evaluate **Vercel AI SDK** (`ai` package) or direct provider SDKs as adapter implementations underneath the internal contract.
+- Choose the option that best supports multi-provider fallback without making framework types the app's domain boundary.
 
 ---
 
@@ -814,9 +914,15 @@ volumes:
 
 > [!IMPORTANT]
 > **Ticket Integration (Jira/Linear)**: The plan currently extracts ticket IDs from the MR description using regex patterns (e.g., `PROJ-123`, `LIN-456`). If you want the agent to actually *fetch* ticket details from Jira/Linear APIs, that requires additional API keys and client code. Should we include this in Phase 2, or defer it?
+Resolution:
+- Include this as Phase 4.5, with Jira ticket fetching added as the next planned implementation phase.
 
 > [!WARNING]
 > **GitLab Self-Managed vs. SaaS**: `@gitbeaker/rest` works with both, but auth and URL configuration differ. Please confirm which GitLab variant you're targeting.
+Resolution:
+- Target both GitLab.com and self-hosted GitLab.
+- Add a dedicated follow-up phase for compatibility work.
+- Introduce a `GITLAB_SELF_HOSTED=true` env variable in that phase to make deployment intent explicit.
 
 ---
 
@@ -834,15 +940,17 @@ bun test
 |---|---|---|
 | `webhook.test.ts` | 1 | Webhook parsing, secret validation, event filtering (mock Hono requests). |
 | `tools.test.ts` | 2 | Tool sandboxing (path traversal blocked), `readFile` output format, `searchCodebase` results, `getDirectoryStructure` formatting. Uses a temp git repo fixture. |
-| `agents.test.ts` | 3 | Each agent in isolation with mocked LLM responses. Validates state transitions, tool-call loop termination, and that Agent 3 correctly filters noise. |
+| `agents.test.ts` | 3 | Protocol helpers, parsers, and orchestrator behavior with mocked model interactions. |
+| `agents-entrypoints.test.ts` | 3 | Direct agent entrypoints with mocked LLM responses, including tool-failure recovery behavior. |
 | `publisher.test.ts` | 4 | Comment formatting, deduplication logic, GitLab API call assertions (mocked `@gitbeaker`). |
+| `logger.test.ts` | Logging | LogTape configuration, level filtering, and structured context behavior. |
 
 ### Integration Test (End-to-End)
 
 1. Start the service: `bun run src/index.ts`
 2. Send a sample webhook payload:
    ```bash
-   curl -X POST http://localhost:8000/api/v1/webhooks/gitlab \
+  curl -X POST http://localhost:8020/api/v1/webhooks/gitlab \
      -H "Content-Type: application/json" \
      -H "X-Gitlab-Token: test-secret" \
      -d @tests/fixtures/sample_mr_event.json

@@ -2,9 +2,9 @@
 // Shared state types flowing through the 3-agent review pipeline.
 // ---------------------------------------------------------------------------
 
-import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
 import type { DiffFile, MRDetails } from "../gitlab-client/types";
+import type { AgentMessage } from "./protocol";
 
 // ---------------------------------------------------------------------------
 // Finding — one concrete code-review finding produced by Agent 2 and
@@ -49,7 +49,7 @@ export interface ReviewState {
 
   // --- Internal orchestration ---
   /** Accumulated message history from Agent 2's tool-calling conversation. */
-  messages: MessageParam[];
+  messages: AgentMessage[];
   reinvestigationCount: number;
   needsReinvestigation: boolean;
 }

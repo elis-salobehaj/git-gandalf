@@ -180,12 +180,47 @@ describe("POST /api/v1/webhooks/gitlab — event filtering", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Webhook — schema correctness (Zod strict — no extra keys pass)
+// Webhook — schema correctness with real GitLab payloads
 // ---------------------------------------------------------------------------
 
-describe("POST /api/v1/webhooks/gitlab — Zod strict schema", () => {
-  it("rejects MR event with extra unexpected top-level key", async () => {
-    const res = await app.fetch(makeRequest({ ...mrOpenEvent, unexpected_key: true }));
-    expect(res.status).toBe(400);
+describe("POST /api/v1/webhooks/gitlab — realistic GitLab payloads", () => {
+  it("accepts MR event with additional GitLab fields", async () => {
+    const res = await app.fetch(
+      makeRequest({
+        ...mrOpenEvent,
+        repository: {
+          name: "my-project",
+          homepage: "https://gitlab.example.com/alice/my-project",
+        },
+        changes: {
+          updated_at: {
+            previous: "2026-03-15T00:00:00Z",
+            current: "2026-03-15T00:05:00Z",
+          },
+        },
+        project: {
+          ...mrOpenEvent.project,
+          name: "My Project",
+          namespace: "alice",
+          http_url: "https://gitlab.example.com/alice/my-project.git",
+        },
+        user: {
+          ...mrOpenEvent.user,
+          email: "alice@example.com",
+          avatar_url: "https://gitlab.example.com/uploads/-/system/user/avatar.png",
+        },
+        object_attributes: {
+          ...mrOpenEvent.object_attributes,
+          id: 99,
+          created_at: "2026-03-15T00:00:00Z",
+          updated_at: "2026-03-15T00:05:00Z",
+          source_project_id: 42,
+          target_project_id: 42,
+        },
+      }),
+    );
+
+    expect(res.status).toBe(202);
+    expect(mockRunPipeline).toHaveBeenCalledTimes(1);
   });
 });

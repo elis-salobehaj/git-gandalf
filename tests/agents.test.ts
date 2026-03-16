@@ -10,10 +10,11 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it, mock } from "bun:test";
-import type { Message, MessageParam } from "@anthropic-ai/sdk/resources/messages";
 // Pure utility function imports — no LLM calls happen from these paths.
 import { buildContextPrompt, parseContextResponse } from "../src/agents/context-agent";
 import { buildInvestigatorPrompt, extractFindings } from "../src/agents/investigator-agent";
+import type { AgentMessage } from "../src/agents/protocol";
+import { textMessage } from "../src/agents/protocol";
 import { buildReflectionPrompt, parseReflectionResponse } from "../src/agents/reflection-agent";
 import type { ReviewState } from "../src/agents/state";
 
@@ -98,20 +99,10 @@ function makeBaseState(): ReviewState {
 }
 
 /**
- * Build a minimal valid Message fixture.
- * Casts as unknown first to bypass SDK-internal required fields on TextBlock
- * and Usage (citations, server_tool_use, etc.) that are irrelevant to tests.
+ * Build a minimal valid AgentMessage fixture.
  */
-function makeTextMessage(text: string): Message {
-  return {
-    id: "msg_test",
-    type: "message",
-    role: "assistant",
-    content: text ? [{ type: "text", text }] : [],
-    model: "claude-test",
-    stop_reason: "end_turn",
-    stop_sequence: null,
-  } as unknown as Message;
+function makeTextMessage(text: string): AgentMessage {
+  return text ? textMessage("assistant", text) : { role: "assistant", content: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -236,20 +227,19 @@ describe("extractFindings", () => {
   });
 
   it("returns [] when no assistant message exists", () => {
-    const messages: MessageParam[] = [{ role: "user", content: "hello" }];
+    const messages: AgentMessage[] = [textMessage("user", "hello")];
     expect(extractFindings(messages)).toEqual([]);
   });
 
   it("returns [] when assistant message has no text block", () => {
-    // ToolUseBlockParam does not require 'caller' — safe to use in MessageParam.content
-    const messages: MessageParam[] = [
-      { role: "assistant", content: [{ type: "tool_use", id: "tu1", name: "read_file", input: {} }] },
+    const messages: AgentMessage[] = [
+      { role: "assistant", content: [{ type: "tool_call", id: "tu1", name: "read_file", input: {} }] },
     ];
     expect(extractFindings(messages)).toEqual([]);
   });
 
   it("parses a raw JSON array from assistant message", () => {
-    const messages: MessageParam[] = [{ role: "assistant", content: [{ type: "text", text: validFindingJson }] }];
+    const messages: AgentMessage[] = [makeTextMessage(validFindingJson)];
     const findings = extractFindings(messages);
     expect(findings).toHaveLength(1);
     expect(findings[0].file).toBe("src/billing.ts");
@@ -258,33 +248,27 @@ describe("extractFindings", () => {
 
   it("parses a JSON array wrapped in ```json fences", () => {
     const fenced = `\`\`\`json\n${validFindingJson}\n\`\`\``;
-    const messages: MessageParam[] = [{ role: "assistant", content: [{ type: "text", text: fenced }] }];
+    const messages: AgentMessage[] = [makeTextMessage(fenced)];
     const findings = extractFindings(messages);
     expect(findings).toHaveLength(1);
   });
 
   it("returns [] for an empty JSON array", () => {
-    const messages: MessageParam[] = [{ role: "assistant", content: [{ type: "text", text: "[]" }] }];
+    const messages: AgentMessage[] = [makeTextMessage("[]")];
     expect(extractFindings(messages)).toEqual([]);
   });
 
   it("returns [] when JSON array fails schema validation", () => {
     const bad = JSON.stringify([{ file: "foo.ts" }]); // missing required fields
-    const messages: MessageParam[] = [{ role: "assistant", content: [{ type: "text", text: bad }] }];
+    const messages: AgentMessage[] = [makeTextMessage(bad)];
     expect(extractFindings(messages)).toEqual([]);
   });
 
   it("uses the most recent assistant message", () => {
-    const oldMsg: MessageParam = {
-      role: "assistant",
-      content: [{ type: "text", text: "[]" }],
-    };
-    const newMsg: MessageParam = {
-      role: "assistant",
-      content: [{ type: "text", text: validFindingJson }],
-    };
+    const oldMsg: AgentMessage = makeTextMessage("[]");
+    const newMsg: AgentMessage = makeTextMessage(validFindingJson);
     // extractFindings walks backwards — newMsg (last) is checked first
-    const findings = extractFindings([oldMsg, { role: "user", content: "ok" }, newMsg]);
+    const findings = extractFindings([oldMsg, textMessage("user", "ok"), newMsg]);
     expect(findings).toHaveLength(1);
   });
 });
@@ -371,6 +355,13 @@ describe("parseReflectionResponse", () => {
     });
     const result = parseReflectionResponse(makeTextMessage(payload));
     expect(result.needsReinvestigation).toBe(true);
+  });
+
+  it("parses a response wrapped in json fences", () => {
+    const fencedPayload = `\`\`\`json\n${validPayload}\n\`\`\``;
+    const result = parseReflectionResponse(makeTextMessage(fencedPayload));
+    expect(result.summaryVerdict).toBe("APPROVE");
+    expect(result.verifiedFindings).toEqual([]);
   });
 
   it("throws on invalid verdict value", () => {

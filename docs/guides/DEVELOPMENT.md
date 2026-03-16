@@ -102,9 +102,13 @@ Current tests:
 
 - `tests/webhook.test.ts`: router auth, JSON handling, schema validation, event filtering
 - `tests/tools.test.ts`: tool sandboxing, formatting, directory tree output, ripgrep integration, dispatcher validation
+- `tests/agents.test.ts`: protocol helpers, parsers, and orchestrator-level behavior
+- `tests/agents-entrypoints.test.ts`: direct agent entrypoints with mocked model responses, including tool-failure recovery
 - `tests/repo-manager.test.ts`: cache path, TTL cleanup, SSRF host validation
+- `tests/publisher.test.ts`: inline publication, duplicate detection, anchoring, and summary-note behavior
+- `tests/logger.test.ts`: LogTape configuration, filtering, and structured logging behavior
 
-The current suite totals 113 passing tests and includes dedicated logger coverage.
+Use the repository's actual `bun test` output as the source of truth for suite size. The count changes as the implementation evolves.
 
 ## Working on tools
 
@@ -116,6 +120,8 @@ Pattern for a new tool:
 2. export `toolDefinition`, `inputSchema`, and the implementation
 3. register the tool in `src/context/tools/index.ts`
 4. add tool behavior tests to `tests/tools.test.ts`
+
+Tool definitions are part of GitGandalf's internal protocol boundary. Keep provider SDK types out of `src/context/tools/`.
 
 ## Security expectations
 

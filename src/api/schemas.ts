@@ -10,7 +10,7 @@ const projectSchema = z
     web_url: z.string().url(),
     path_with_namespace: z.string(),
   })
-  .strict();
+  .loose();
 
 const userSchema = z
   .object({
@@ -18,7 +18,7 @@ const userSchema = z
     name: z.string(),
     username: z.string(),
   })
-  .strict();
+  .loose();
 
 // ---------------------------------------------------------------------------
 // Merge Request event
@@ -37,7 +37,7 @@ const mergeRequestAttributesSchema = z
     draft: z.boolean().optional(),
     work_in_progress: z.boolean().optional(),
   })
-  .strict();
+  .loose();
 
 export const mergeRequestEventSchema = z
   .object({
@@ -47,7 +47,7 @@ export const mergeRequestEventSchema = z
     user: userSchema,
     object_attributes: mergeRequestAttributesSchema,
   })
-  .strict();
+  .loose();
 
 export type MergeRequestEvent = z.infer<typeof mergeRequestEventSchema>;
 
@@ -63,7 +63,7 @@ const noteAttributesSchema = z
     noteable_id: z.number().nullable().optional(),
     url: z.string().url().optional(),
   })
-  .strict();
+  .loose();
 
 const noteMergeRequestSchema = z
   .object({
@@ -73,7 +73,7 @@ const noteMergeRequestSchema = z
     target_branch: z.string(),
     state: z.string(),
   })
-  .strict();
+  .loose();
 
 export const noteEventSchema = z
   .object({
@@ -84,7 +84,7 @@ export const noteEventSchema = z
     object_attributes: noteAttributesSchema,
     merge_request: noteMergeRequestSchema,
   })
-  .strict();
+  .loose();
 
 export type NoteEvent = z.infer<typeof noteEventSchema>;
 

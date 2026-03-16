@@ -1,75 +1,96 @@
 # Architecture (Agent Reference)
 
-Concise reference for the currently implemented GitGandalf architecture.
+Concise reference for the architecture implemented in the current repo.
 
-## Current Runtime Surface
+## Runtime Surface
 
-- `src/index.ts`: Hono app entrypoint, calls `initLogging()`, mounts `/api/v1`, enables structured HTTP request logging via `@logtape/hono` middleware (JSON Lines output, health check excluded), exports Bun server config.
-- `src/logger.ts`: LogTape configuration module. `initLogging()` sets up JSON Lines logging for the whole app, wires `config.LOG_LEVEL` to the `["gandalf"]` category, appends debug-mode runs to `logs/gg-dev.log`, silences test-mode app logging, and enables implicit context propagation via `AsyncLocalStorage`. Re-exports `getLogger` and `withContext` for the codebase.
-- `src/api/router.ts`: owns `POST /api/v1/webhooks/gitlab` and `GET /api/v1/health`. Generates a `requestId` per webhook and propagates it via `withContext()` into the pipeline.
-- `src/api/schemas.ts`: strict Zod schemas for GitLab `merge_request` and `note` webhook payloads.
-- `src/api/pipeline.ts`: full end-to-end pipeline. Fetches MR metadata and diff, clones or updates the repo cache, runs the review agents, and publishes inline findings plus the summary note.
-- `src/config.ts`: Zod-validated singleton config parsed from `process.env` at module load time.
-- `src/gitlab-client/client.ts`: typed wrapper around `@gitbeaker/rest` for MR metadata, diffs, discussions, and posting comments.
-- `src/context/repo-manager.ts`: shallow clone/update cache manager using `Bun.spawn()` + native `git`.
-- `src/context/tools/`: modular tool surface used by the investigator agent during repository review.
-- `src/agents/`: shared review subsystem containing shared state, Bedrock client wrapper, three agents, and the orchestrator invoked by the API pipeline.
+- `src/index.ts`: Bun entrypoint. Initializes LogTape, mounts `/api/v1`, applies `@logtape/hono` request logging, exports the Bun server.
+- `src/logger.ts`: central logging config. Wires `LOG_LEVEL`, emits JSON Lines, appends debug runs to `logs/gg-dev.log`, and propagates implicit context with `AsyncLocalStorage`.
+- `src/config.ts`: Zod-validated config singleton parsed from `process.env`.
+- `src/api/router.ts`: verifies `X-Gitlab-Token`, validates webhook payloads, filters supported events, generates `requestId`, and starts the async pipeline.
+- `src/api/schemas.ts`: permissive Zod schemas for `merge_request` and `note` webhooks. Required fields are enforced; extra GitLab keys are tolerated.
+- `src/api/pipeline.ts`: fetches MR metadata and diffs, clones or updates the repo cache, runs the review pipeline, and publishes results back to GitLab.
+- `src/gitlab-client/client.ts`: typed wrapper over `@gitbeaker/rest` for MR details, diffs, discussions, summary notes, and inline discussions.
+- `src/context/repo-manager.ts`: shallow clone/update cache manager using native `git` through `Bun.spawn()`.
+- `src/context/tools/`: modular tool implementations and the public tool manifest consumed by Agent 2.
+- `src/agents/protocol.ts`: app-owned message, tool-call, tool-result, stop-reason, and tool-definition contract.
+- `src/agents/llm-client.ts`: adapter between the internal protocol and AWS Bedrock Runtime Converse.
+- `src/agents/`: context agent, investigator loop, reflection agent, and the orchestrator.
+- `src/publisher/gitlab-publisher.ts`: publishes verified findings as inline discussions when possible and always posts a summary note.
 
-## Webhook Flow (Implemented)
+## Webhook Flow
 
 1. GitLab sends `merge_request` or `note` webhook to `POST /api/v1/webhooks/gitlab`.
-2. Router verifies `X-Gitlab-Token` against `config.GITLAB_WEBHOOK_SECRET`.
-3. Router parses JSON body and validates it with `webhookPayloadSchema.safeParse()`.
-4. Router filters events:
-	- merge requests: `open`, `update`, `reopen`
-	- notes: `/ai-review` comments on `MergeRequest`
-5. Router generates a `requestId` via `Bun.randomUUIDv7()` and calls `withContext({ requestId }, ...)` to propagate it through all downstream logging.
-6. Matching events call `runPipeline(event)` without awaiting and return `202 Accepted`.
-7. Non-matching events return `200 Ignored`; invalid payloads return `400`; bad secret returns `401`.
+2. Router checks `X-Gitlab-Token` against `config.GITLAB_WEBHOOK_SECRET`.
+3. Router parses JSON and validates `webhookPayloadSchema` with `safeParse()`.
+4. Router accepts only:
+	- merge requests with action `open`, `update`, or `reopen`
+	- note events on `MergeRequest` whose text begins with `/ai-review`
+5. Router generates `requestId` via `Bun.randomUUIDv7()`.
+6. Router calls `runPipeline(event)` inside `withContext({ requestId })` without awaiting it.
+7. HTTP response returns immediately:
+	- `202 Accepted` for supported review triggers
+	- `200 Ignored` for valid but unsupported events
+	- `400` for invalid JSON or invalid payloads
+	- `401` for bad secret
 
-## Request Correlation (Implemented)
+## Request Correlation
 
-- `requestId` is generated in the router via `Bun.randomUUIDv7()` immediately after a webhook is accepted.
-- `withContext({ requestId })` in the router and `withContext({ projectId, mrIid })` in the pipeline entry propagate these values as implicit context through LogTape's `AsyncLocalStorage`.
-- Every log line emitted anywhere in the webhook → pipeline → orchestrator → agents → publisher flow automatically carries `requestId`, `projectId`, and `mrIid` without any module needing to pass them explicitly.
+- Router sets `requestId`.
+- Pipeline adds `projectId` and `mrIid`.
+- LogTape implicit context carries those fields across the full async path: router -> pipeline -> orchestrator -> publisher.
 
-## Context Engine (Implemented)
+## Repo And Tool Layer
 
-### `RepoManager`
+### Repo manager
 
-- Cache key: `<REPO_CACHE_DIR>/<projectId>`
-- first clone: `git clone --depth 1 --branch <branch>`
-- update path: `git fetch origin <branch> --depth 1` then `git reset --hard origin/<branch>`
-- cleanup: TTL-based eviction using directory `mtime`
-- security: refuses to inject the GitLab token into clone URLs whose hostname does not match `config.GITLAB_URL`
+- cache key: `<REPO_CACHE_DIR>/<projectId>`
+- clone path: `git clone --depth 1 --branch <branch>`
+- refresh path: `git fetch origin <branch> --depth 1` then `git reset --hard origin/<branch>`
+- cleanup: TTL eviction using directory `mtime`
+- host guard: clone URL hostname must match `config.GITLAB_URL`
 
-### Tool Surface
+### Tool surface
 
-- `read_file`: reads up to 500 lines, prefixes 1-based line numbers
-- `search_codebase`: runs `rg --json`, parses NDJSON, caps results at `config.MAX_SEARCH_RESULTS`
-- `get_directory_structure`: directory tree up to depth 3, ignores `.git`, `node_modules`, `dist`, etc.
-- `executeTool`: Zod-validates tool inputs before dispatching to implementations
-- sandboxing: all file and directory paths are constrained with `path.resolve()` + prefix check
+- `read_file`: reads a sandboxed file and prefixes 1-based line numbers
+- `search_codebase`: shells out to `rg --json`, parses NDJSON, caps results at `MAX_SEARCH_RESULTS`
+- `get_directory_structure`: directory tree up to depth 3 with common heavy directories ignored
+- `TOOL_DEFINITIONS`: internal tool manifest exported from `src/context/tools/index.ts`
+- `executeTool()`: validates tool inputs with Zod before dispatching
 
-## Agent Review Flow (Implemented)
+All tool file access is sandboxed with `path.resolve()` plus repo-root prefix checks.
 
-Phase 3's review subsystem is implemented and invoked from the API pipeline.
+## Review Pipeline
 
-- `src/agents/state.ts`: `Finding` schema/type plus `ReviewState`
-- `src/agents/llm-client.ts`: thin Bedrock/Anthropic messages wrapper
-- `src/agents/context-agent.ts`: derives MR intent, change categories, and investigation hypotheses
-- `src/agents/investigator-agent.ts`: runs the tool loop with `TOOL_DEFINITIONS` and `executeTool()`
-- `src/agents/reflection-agent.ts`: filters findings and assigns the summary verdict
-- `src/agents/orchestrator.ts`: coordinates the three stages and allows one reinvestigation loop
+The pipeline is fully implemented and invoked from `src/api/pipeline.ts`.
 
-The pipeline currently provides `mrDetails`, `diffFiles`, and `repoPath` before calling the orchestrator.
+1. `contextAgent()` derives MR intent, change categories, and risk areas.
+2. `investigatorLoop()` calls Bedrock through `chatCompletion()`, executes tool calls, and accumulates raw findings.
+3. `reflectionAgent()` filters unsupported or weak findings and assigns the verdict.
+4. `orchestrator.ts` allows one reinvestigation pass when reflection requests it.
 
-## Planned But Not Implemented Yet
+### Internal protocol boundary
 
+- All agent state uses `src/agents/protocol.ts`, not provider SDK types.
+- `src/agents/llm-client.ts` is the only Bedrock-specific message translation layer.
+- Tool definitions are also internalized, so the investigator loop does not depend on provider SDK tool schemas.
+
+### Tool-failure behavior
+
+- Individual tool failures do not abort the whole review.
+- `investigatorLoop()` catches tool execution errors and feeds them back to the model as error `tool_result` blocks.
+- This lets Agent 2 recover from missing files or bad tool inputs instead of crashing the pipeline.
+
+## Publishing Behavior
+
+- Verified findings are published as inline discussions when they can be anchored to the MR diff.
+- Findings that cannot be anchored are skipped for inline publication but still contribute to the summary verdict.
+- A summary note is always posted with the final verdict.
+
+## Planned Next Boundaries
+
+- Phase 4.5: Jira ticket-context enrichment
+- Phase 4.6: GitLab SaaS and self-hosted compatibility hardening
 - Phase 5+: queueing, Kubernetes, provider fallback
 
-## Import Contract
-
-Consumers should import from `src/context/tools` only. `src/context/tools/index.ts` is the public barrel and preserves a stable import path even though tools are split into per-file modules.
-
-For the fuller human-oriented architecture walkthrough, see [`docs/humans/context/ARCHITECTURE.md`](../../humans/context/ARCHITECTURE.md).
+For the fuller human walkthrough, see [`docs/humans/context/ARCHITECTURE.md`](../../humans/context/ARCHITECTURE.md).

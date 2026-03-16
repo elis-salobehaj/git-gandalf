@@ -81,7 +81,7 @@ completion:
   - [x] L5.6 Update `docs/README.md` — logging in implemented list + plan index
   - [x] L5.7 Update `docs/agents/README.md` — logging convention reference verified
   - [x] L5.8 Update `docs/humans/README.md` — Architecture description mentions logging
-  - [x] L5.9 Final grep pass — no stale `console.log`, `hono/logger`, or 'not yet wired' refs
+  - [x] L5.9 Final grep pass — no stale legacy console-logging, `hono/logger`, or outdated unwired-logging references
   - [x] L5.10 Plan moved to `docs/plans/implemented/`, status set to 'implemented'
 ---
 
@@ -97,9 +97,9 @@ completion:
 
 ## Problem Statement
 
-GitGandalf has 13 ad-hoc `console.*` calls scattered across 4 modules, each
-manually prefixed with `[module]` tags. The `LOG_LEVEL` env var is parsed by Zod
-in `src/config.ts` but **not wired to anything**. The only structured logging is
+GitGandalf had 13 ad-hoc `console.*` calls scattered across 4 modules, each
+manually prefixed with `[module]` tags. At the time this plan was written, the `LOG_LEVEL` env var was parsed by Zod
+in `src/config.ts` but **not wired to any logging backend**. The only structured logging was
 Hono's built-in `logger()` middleware in `src/index.ts`, which outputs
 unstructured `<-- method path` / `--> method path status time` lines.
 
@@ -241,7 +241,7 @@ and wire `config.LOG_LEVEL` so it actually controls log output.
 #### Docs Overhaul — Phase L1
 
 - [x] **L1.5** — Update `docs/agents/context/CONFIGURATION.md`:
-  - Change the `LOG_LEVEL` row from "Parsed today but not yet wired to a
+  - Change the `LOG_LEVEL` row from "Parsed today but not yet connected to a
     structured logger" to "Wired to LogTape via `src/logger.ts`. Controls the
     `lowestLevel` of the root `["gandalf"]` logger category."
 - [x] **L1.6** — Update `docs/agents/context/ARCHITECTURE.md`:
@@ -340,7 +340,7 @@ calls remain in production source code.
 
 - [x] **L3.3** — Migrate `src/agents/orchestrator.ts` (5 calls):
   - Add `const logger = getLogger(["gandalf", "orchestrator"])` at module scope
-  - Replace each `console.log("[orchestrator] ...")` with the corresponding
+  - Replace each legacy orchestrator console log call with the corresponding
     LogTape call:
     - `"Starting review pipeline"` → `logger.info("Starting review pipeline")`
     - `"Agent 1: Context & Intent"` → `logger.info("Running Agent 1: Context & Intent")`
@@ -353,7 +353,7 @@ calls remain in production source code.
   - Add `const logger = getLogger(["gandalf", "publisher"])` at module scope
   - Replace `console.warn("[publisher] Skipping non-diff finding: ...")` with
     `logger.warn("Skipping non-diff finding", { title: finding.title, file: finding.file, lineStart: finding.lineStart, lineEnd: finding.lineEnd })`
-  - Replace `console.log("[publisher] Skipping duplicate finding: ...")` with
+  - Replace the legacy duplicate-finding console log call with
     `logger.debug("Skipping duplicate finding", { title: finding.title, file: finding.file, lineStart: finding.lineStart })`
     (note: changed from `info` to `debug` — duplicates are noise at info level)
   - Replace `console.warn("[publisher] Failed to post finding ...")` with

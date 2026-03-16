@@ -13,11 +13,11 @@
 // At end_turn, the agent emits a JSON array of findings in its final text block.
 // ---------------------------------------------------------------------------
 
-import type { ContentBlockParam, Message, MessageParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
 import { config } from "../config";
 import { executeTool, TOOL_DEFINITIONS } from "../context/tools";
 import { chatCompletion } from "./llm-client";
+import { type AgentMessage, textMessage, toolCallBlocks } from "./protocol";
 import { type Finding, findingSchema, type ReviewState } from "./state";
 
 // ---------------------------------------------------------------------------
@@ -105,17 +105,14 @@ export function buildInvestigatorPrompt(state: ReviewState): string {
  * Looks for a JSON array in the last text block of the message history.
  * Returns [] if no valid findings are found (safe default).
  */
-export function extractFindings(messages: MessageParam[]): Finding[] {
+export function extractFindings(messages: AgentMessage[]): Finding[] {
   // Walk assistant messages from newest to oldest
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "assistant") continue;
 
-    const content = Array.isArray(msg.content) ? msg.content : [];
-    for (const block of content) {
-      if (typeof block !== "object" || block === null) continue;
-      if (!("type" in block) || block.type !== "text") continue;
-      if (!("text" in block) || typeof block.text !== "string") continue;
+    for (const block of msg.content) {
+      if (block.type !== "text") continue;
 
       const text = block.text.trim();
       // Try to extract a JSON array — accept both raw JSON and ```json fenced blocks
@@ -137,63 +134,44 @@ export function extractFindings(messages: MessageParam[]): Finding[] {
   return [];
 }
 
-/**
- * Convert Anthropic response blocks into the MessageParam content shapes we
- * persist in ReviewState. Rejects unexpected block types explicitly.
- */
-export function normalizeAssistantContent(content: Message["content"]): ContentBlockParam[] {
-  return content.map((block) => {
-    if (block.type === "text") {
-      return {
-        type: "text",
-        text: block.text,
-      };
-    }
-
-    if (block.type === "tool_use") {
-      return {
-        type: "tool_use",
-        id: block.id,
-        name: block.name,
-        input: toolInputSchema.parse(block.input),
-      };
-    }
-
-    throw new Error(`Unsupported assistant content block type: ${block.type}`);
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Main agent function
 // ---------------------------------------------------------------------------
 
 export async function investigatorLoop(state: ReviewState): Promise<ReviewState> {
-  const messages: MessageParam[] = [{ role: "user", content: buildInvestigatorPrompt(state) }];
+  const messages: AgentMessage[] = [textMessage("user", buildInvestigatorPrompt(state))];
 
   let iterations = 0;
 
   while (iterations < config.MAX_TOOL_ITERATIONS) {
-    const response: Message = await chatCompletion(INVESTIGATOR_SYSTEM_PROMPT, messages, TOOL_DEFINITIONS);
+    const response = await chatCompletion(INVESTIGATOR_SYSTEM_PROMPT, messages, TOOL_DEFINITIONS);
 
     // Append the assistant turn to history
-    messages.push({
-      role: "assistant",
-      content: normalizeAssistantContent(response.content),
-    });
+    messages.push(response.message);
 
-    // Extract any tool_use blocks from the response
-    const toolUses = response.content.filter((block): block is ToolUseBlock => block.type === "tool_use");
+    const toolUses = toolCallBlocks(response.message);
 
     // If the agent stopped calling tools, the investigation is complete
     if (toolUses.length === 0) break;
 
     // Execute all requested tools in parallel and append results
     const toolResults = await Promise.all(
-      toolUses.map(async (toolUse) => ({
-        type: "tool_result" as const,
-        tool_use_id: toolUse.id,
-        content: await executeTool(state.repoPath, toolUse.name, toolInputSchema.parse(toolUse.input)),
-      })),
+      toolUses.map(async (toolUse) => {
+        try {
+          return {
+            type: "tool_result" as const,
+            toolCallId: toolUse.id,
+            output: await executeTool(state.repoPath, toolUse.name, toolInputSchema.parse(toolUse.input)),
+          };
+        } catch (error) {
+          return {
+            type: "tool_result" as const,
+            toolCallId: toolUse.id,
+            output: error instanceof Error ? error.message : String(error),
+            isError: true,
+          };
+        }
+      }),
     );
 
     messages.push({ role: "user", content: toolResults });

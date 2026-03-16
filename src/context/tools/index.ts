@@ -6,7 +6,7 @@
 // implementation detail.
 // ---------------------------------------------------------------------------
 
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+import type { AgentToolDefinition } from "../../agents/protocol";
 import {
   getDirectoryStructure,
   toolDefinition as getDirectoryStructureDef,
@@ -25,11 +25,15 @@ export { searchCodebase } from "./search-codebase";
 export type { SearchResult } from "./shared";
 
 // ---------------------------------------------------------------------------
-// Aggregated tool manifest — passed to messages.create({ tools: TOOL_DEFINITIONS })
+// Aggregated tool manifest consumed by the LLM adapter.
 // Adding a new tool: create a new file, add its toolDefinition here.
 // ---------------------------------------------------------------------------
 
-export const TOOL_DEFINITIONS = [readFileDef, searchCodebaseDef, getDirectoryStructureDef] satisfies readonly Tool[];
+export const TOOL_DEFINITIONS = [
+  readFileDef,
+  searchCodebaseDef,
+  getDirectoryStructureDef,
+] satisfies readonly AgentToolDefinition[];
 
 // ---------------------------------------------------------------------------
 // Tool dispatcher — validates LLM-supplied arguments with Zod before calling

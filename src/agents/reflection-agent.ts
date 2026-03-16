@@ -14,9 +14,9 @@
 // Output is strict JSON validated with Zod.
 // ---------------------------------------------------------------------------
 
-import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
 import { chatCompletion } from "./llm-client";
+import { type AgentMessage, firstTextBlock, textMessage } from "./protocol";
 import { findingSchema, type ReviewState } from "./state";
 
 // ---------------------------------------------------------------------------
@@ -77,20 +77,24 @@ export function buildReflectionPrompt(state: ReviewState): string {
  * Extract and Zod-validate the JSON payload from the reflection response.
  * Throws if the response cannot be parsed or does not match the schema.
  */
-export function parseReflectionResponse(response: Message): {
+export function parseReflectionResponse(response: AgentMessage): {
   verifiedFindings: z.infer<typeof findingSchema>[];
   summaryVerdict: "APPROVE" | "REQUEST_CHANGES" | "NEEDS_DISCUSSION";
   needsReinvestigation: boolean;
   reinvestigationReason?: string;
 } {
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
+  const textBlock = firstTextBlock(response);
+  if (!textBlock) {
     throw new Error("Reflection agent returned no text block");
   }
 
+  const text = textBlock.text.trim();
+  const jsonMatch = text.match(/```json\s*([\s\S]*?)```/) ?? text.match(/(\{[\s\S]*\})/);
+  const candidate = jsonMatch?.[1]?.trim() ?? text;
+
   let raw: unknown;
   try {
-    raw = JSON.parse(textBlock.text.trim());
+    raw = JSON.parse(candidate);
   } catch {
     throw new Error(`Reflection agent returned unparseable JSON:\n${textBlock.text}`);
   }
@@ -104,10 +108,10 @@ export function parseReflectionResponse(response: Message): {
 
 export async function reflectionAgent(state: ReviewState): Promise<ReviewState> {
   const response = await chatCompletion(REFLECTION_AGENT_SYSTEM_PROMPT, [
-    { role: "user", content: buildReflectionPrompt(state) },
+    textMessage("user", buildReflectionPrompt(state)),
   ]);
 
-  const parsed = parseReflectionResponse(response);
+  const parsed = parseReflectionResponse(response.message);
 
   return {
     ...state,

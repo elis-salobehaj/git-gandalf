@@ -28,7 +28,7 @@ HTTP request/response logging is handled automatically by `@logtape/hono` middle
 - `401 Unauthorized`: wrong or missing secret
 - `400 Invalid JSON` / `400 Invalid payload`: malformed body or failed schema validation
 - `200 Ignored`: valid webhook that does not match the trigger rules
-- `202 Accepted`: relevant webhook queued into the stub pipeline
+- `202 Accepted`: relevant webhook queued into the full async review pipeline
 
 ## 2. Repo Cache Workflow
 
@@ -44,11 +44,13 @@ Implemented in `src/context/repo-manager.ts`.
 
 Implemented in `src/context/tools/index.ts` and per-tool modules.
 
-1. LLM emits `tool_use` block
+1. LLM emits a tool-call block through the internal agent protocol
 2. `executeTool()` selects the tool by name
 3. tool input is validated with a Zod schema
 4. implementation runs inside the repo sandbox
 5. result is returned as a string or JSON string payload
+
+If a specific tool call throws, Agent 2 catches the failure and sends the error back to the model as an error `tool_result` block instead of aborting the review.
 
 ### Current tools
 
@@ -67,10 +69,15 @@ Implemented in `src/agents/`.
 
 1. caller provides `ReviewState` input fields: `mrDetails`, `diffFiles`, `repoPath`
 2. `contextAgent()` derives `mrIntent`, `changeCategories`, and `riskAreas`
-3. `investigatorLoop()` builds the investigation prompt and calls Bedrock
+3. `investigatorLoop()` builds the investigation prompt and calls Bedrock Runtime Converse through the internal protocol adapter
 4. tool requests are executed through `executeTool()` using `TOOL_DEFINITIONS`
 5. `reflectionAgent()` filters the raw findings and assigns a verdict
 6. `orchestrator.ts` allows one reinvestigation round when `needsReinvestigation` is true
+
+Current publishing behavior after review:
+
+- inline discussions are created only for findings that can be anchored to diff positions
+- non-diff findings are skipped for inline publication and summarized instead of crashing publication
 
 The agent subsystem is implemented and invoked from the API pipeline.
 

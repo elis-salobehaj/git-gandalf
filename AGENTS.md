@@ -12,7 +12,7 @@ high-signal inline review comments.
 - **Framework**: Hono (ultralight, Web Standards)
 - **Language**: TypeScript (strict mode)
 - **Validation**: Zod (all schemas, env config, API payloads)
-- **LLM**: AWS Bedrock via @anthropic-ai/bedrock-sdk (Claude Sonnet 4)
+- **LLM**: AWS Bedrock Runtime Converse via `@aws-sdk/client-bedrock-runtime` (Claude Sonnet 4), behind GitGandalf's internal agent protocol
 - **GitLab Client**: @gitbeaker/rest
 - **Linting/Formatting**: Biome (replaces ESLint + Prettier)
 
@@ -28,6 +28,7 @@ high-signal inline review comments.
 5. **Update docs index**: Update `docs/README.md` when plans change status.
 6. **Security**: All file/search tools sandboxed to cloned repo paths.
    Path traversal blocked via `path.resolve()` + prefix check.
+7. **Internal protocol is the app boundary**: keep provider-specific message/tool shapes contained in `src/agents/llm-client.ts` and `src/agents/protocol.ts`.
 
 ## 📖 Guides
 

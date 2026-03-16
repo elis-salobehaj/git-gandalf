@@ -12,7 +12,7 @@ const envSchema = z.object({
   MAX_SEARCH_RESULTS: z.coerce.number().int().positive().default(100),
   REPO_CACHE_DIR: z.string().default("/tmp/repo_cache"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
-  PORT: z.coerce.number().int().positive().default(8000),
+  PORT: z.coerce.number().int().positive().default(8020),
 });
 
 export type Config = z.infer<typeof envSchema>;

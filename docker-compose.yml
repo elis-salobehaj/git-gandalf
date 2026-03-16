@@ -3,7 +3,7 @@ services:
     build: .
     env_file: .env
     ports:
-      - "${PORT:-8000}:8000"
+      - "${PORT:-8020}:${PORT:-8020}"
     volumes:
       - repo-cache:/tmp/repo_cache
     restart: unless-stopped

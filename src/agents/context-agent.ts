@@ -10,9 +10,9 @@
 // Output is strict JSON validated with Zod at the external boundary.
 // ---------------------------------------------------------------------------
 
-import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
 import { chatCompletion } from "./llm-client";
+import { type AgentMessage, firstTextBlock, textMessage } from "./protocol";
 import type { ReviewState } from "./state";
 
 // ---------------------------------------------------------------------------
@@ -85,13 +85,13 @@ export function buildContextPrompt(state: ReviewState): string {
  * Extract and Zod-validate the JSON payload from the LLM response.
  * Throws if the response cannot be parsed or does not match the schema.
  */
-export function parseContextResponse(response: Message): {
+export function parseContextResponse(response: AgentMessage): {
   intent: string;
   categories: string[];
   riskHypotheses: string[];
 } {
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
+  const textBlock = firstTextBlock(response);
+  if (!textBlock) {
     throw new Error("Context agent returned no text block");
   }
 
@@ -110,11 +110,9 @@ export function parseContextResponse(response: Message): {
 // ---------------------------------------------------------------------------
 
 export async function contextAgent(state: ReviewState): Promise<ReviewState> {
-  const response = await chatCompletion(CONTEXT_AGENT_SYSTEM_PROMPT, [
-    { role: "user", content: buildContextPrompt(state) },
-  ]);
+  const response = await chatCompletion(CONTEXT_AGENT_SYSTEM_PROMPT, [textMessage("user", buildContextPrompt(state))]);
 
-  const parsed = parseContextResponse(response);
+  const parsed = parseContextResponse(response.message);
 
   return {
     ...state,

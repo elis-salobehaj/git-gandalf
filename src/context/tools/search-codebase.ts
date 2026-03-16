@@ -1,16 +1,17 @@
 import { z } from "zod";
+import type { AgentToolDefinition } from "../../agents/protocol";
 import { config } from "../../config";
 import type { SearchResult } from "./shared";
 
 // ---------------------------------------------------------------------------
-// Tool definition (Anthropic tool_use schema format)
+// Tool definition (GitGandalf internal tool schema)
 // The cap is injected from config so the LLM sees the actual runtime limit.
 // ---------------------------------------------------------------------------
 
-export const toolDefinition = {
+export const toolDefinition: AgentToolDefinition = {
   name: "search_codebase",
   description: `Search the repository using ripgrep. Returns matching file paths, 1-based line numbers, and the matching line text. Capped at ${config.MAX_SEARCH_RESULTS} results across all files.`,
-  input_schema: {
+  inputSchema: {
     type: "object" as const,
     properties: {
       query: {

@@ -1,6 +1,6 @@
 # Architecture
 
-GitGandalf is a Bun-native webhook service built in phases. The current repository includes the full webhook-to-review-to-publish path: webhook ingestion, typed GitLab access, repo cache management, modular tool execution, the multi-agent review subsystem, GitLab publishing, deployment packaging, and structured logging with request correlation.
+GitGandalf is a Bun-native webhook service built in phases. The current repository includes the complete webhook-to-review-to-publish path: webhook ingestion, typed GitLab access, repo cache management, modular tool execution, the multi-agent review subsystem, GitLab publishing, deployment packaging, and structured logging with request correlation.
 
 For the concise agent-optimized version, see [`docs/agents/context/ARCHITECTURE.md`](../../agents/context/ARCHITECTURE.md).
 
@@ -17,7 +17,8 @@ graph TD
 	G --> GA[withContext requestId + projectId + mrIid]
 	GA --> H[Fetch MR data + clone repo]
 	H --> I[runReview agents]
-	I --> J[publish inline comments + summary]
+	I --> IA[Agent 2 tool failures become error tool_result blocks]
+	IA --> J[publish inline comments + summary]
 	J --> K[LogTape JSON Lines to stdout]
 
 	L[src/logger.ts] --> M[configure LogTape JSON sink]
@@ -34,7 +35,6 @@ git-gandalf/
 ├── Dockerfile
 ├── package.json                    # Dependencies & scripts
 ├── tsconfig.json                   # TypeScript configuration
-├── bunfig.toml                     # Bun-specific config (optional)
 ├── README.md
 ├── src/
 │   ├── index.ts                    # Hono app entrypoint + server bootstrap, calls initLogging()
@@ -42,7 +42,7 @@ git-gandalf/
 │   ├── config.ts                   # Env vars via Zod-validated process.env
 │   ├── api/
 │   │   ├── router.ts               # Webhook + health route definitions
-│   │   ├── schemas.ts              # Zod schemas for GitLab webhook payloads
+│   │   ├── schemas.ts              # Zod schemas for GitLab webhook payloads (required fields + permissive extras)
 │   │   └── pipeline.ts             # Full pipeline: fetch MR data, clone repo, run agents, publish findings
 │   ├── gitlab-client/
 │   │   ├── client.ts               # @gitbeaker/rest wrapper (fetch MR, diff, discussions)
@@ -58,7 +58,8 @@ git-gandalf/
 │   ├── agents/
 │   │   ├── orchestrator.ts         # Custom state-machine pipeline (runReview entrypoint)
 │   │   ├── state.ts                # ReviewState type + Finding type definitions
-│   │   ├── llm-client.ts           # Bedrock/Anthropic SDK wrapper + tool-call helpers
+│   │   ├── protocol.ts             # Internal GitGandalf message/tool contract
+	│   │   ├── llm-client.ts           # Bedrock Runtime Converse adapter behind the internal protocol
 │   │   ├── context-agent.ts        # Agent 1: Context & Intent Mapper
 │   │   ├── investigator-agent.ts   # Agent 2: Socratic Investigator (tool loop)
 │   │   └── reflection-agent.ts     # Agent 3: Reflection & Consolidation
@@ -79,17 +80,17 @@ git-gandalf/
 
 | Area | Current Status | Owning Phase | Notes |
 |---|---|---|---|
-| `src/index.ts`, `src/api/`, `src/config.ts` | Implemented | Phase 1 | Webhook ingress, health endpoint, strict payload validation, and config loading are live. |
+| `src/index.ts`, `src/api/`, `src/config.ts` | Implemented | Phase 1 | Webhook ingress, health endpoint, permissive-required payload validation, and config loading are live. |
 | `src/logger.ts` | Implemented | Logging plan | Structured JSON logging via LogTape; `LOG_LEVEL` wired; request correlation via `withContext()`. |
 | `src/gitlab-client/` | Implemented | Phase 1 | Typed GitLab wrapper exists, including read and write methods needed by later phases. |
 | `src/context/repo-manager.ts` | Implemented | Phase 2 | Shallow clone/update cache manager with TTL cleanup and host validation. |
-| `src/context/tools/` | Implemented | Phase 2 and 2.5 | Tool surface exists and was modularized in Phase 2.5 into one file per tool. |
-| `src/agents/` | Implemented | Phase 3 | Shared state, Bedrock client wrapper, context agent, investigator agent, reflection agent, and orchestrator are implemented and invoked by the API pipeline. |
+| `src/context/tools/` | Implemented | Phase 2 and 2.5 | Tool surface exists, is modularized one-tool-per-file, and uses the app-owned tool-definition contract. |
+| `src/agents/` | Implemented | Phase 3 | Shared state, internal protocol, Bedrock Runtime adapter, context agent, investigator agent, reflection agent, and orchestrator are implemented and invoked by the API pipeline. |
 | `src/publisher/` | Implemented | Phase 4 | GitLab publisher posts inline comments and a summary comment, with duplicate detection and diff-position anchoring. |
 | `Dockerfile`, `docker-compose.yml`, top-level `README.md` | Implemented | Phase 4 | Deployment packaging and end-user project documentation are present in the repository. |
-| `tests/webhook.test.ts` | Implemented | Phase 1 | Covers auth, filtering, invalid payloads, and strict schema behavior. |
+| `tests/webhook.test.ts` | Implemented | Phase 1 | Covers auth, filtering, invalid payloads, and realistic GitLab payload tolerance. |
 | `tests/tools.test.ts`, `tests/repo-manager.test.ts` | Implemented | Phase 2 and 2.5 | Covers tool sandboxing, search and tree behavior, repo cache cleanup, and SSRF guard behavior. |
-| `tests/agents.test.ts`, `tests/agents-entrypoints.test.ts` | Implemented | Phase 3 | Covers prompt builders/parsers, orchestrator control flow, and direct agent entrypoints with mocked LLM responses. |
+| `tests/agents.test.ts`, `tests/agents-entrypoints.test.ts` | Implemented | Phase 3 | Covers prompt builders/parsers, orchestrator control flow, direct agent entrypoints with mocked LLM responses, and tool-failure recovery behavior. |
 | `tests/publisher.test.ts` | Implemented | Phase 4 | Covers comment formatting, duplicate detection, diff anchoring, error continuation, and summary-note posting. |
 
 ## Implemented Components
@@ -114,7 +115,7 @@ git-gandalf/
 `src/api/router.ts` does four real jobs today:
 
 1. verifies the GitLab shared secret
-2. validates webhook payloads with strict Zod schemas
+2. validates webhook payloads with Zod schemas that require the fields GitGandalf uses while tolerating additional GitLab webhook keys
 3. filters down to merge-request review triggers
 4. hands the event to `runPipeline(event)` without blocking the HTTP response
 
@@ -125,7 +126,7 @@ The filter rules are intentionally narrow:
 
 ### Zod schema boundary
 
-`src/api/schemas.ts` defines strict object schemas for:
+`src/api/schemas.ts` defines permissive object schemas for:
 
 - project identity
 - user identity
@@ -133,7 +134,7 @@ The filter rules are intentionally narrow:
 - note attributes
 - a discriminated union over `object_kind`
 
-This means extra top-level keys are rejected rather than tolerated silently.
+This means required fields are validated, while extra GitLab keys are tolerated. That matches real GitLab webhook payloads better than the earlier strict-only version.
 
 ### GitLab client wrapper
 
@@ -145,7 +146,7 @@ This means extra top-level keys are rejected rather than tolerated silently.
 - `createMRNote()`
 - `createInlineDiscussion()`
 
-The wrapper also handles gitbeaker’s awkward snake_case response shapes and camelCase create-option shapes in one place.
+The wrapper also handles gitbeaker's awkward snake_case response shapes and camelCase create-option shapes in one place. MR diffs are fetched via `MergeRequests.allDiffs()`.
 
 ### Repo cache manager
 
@@ -170,18 +171,29 @@ Phase 2.5 split the original monolithic `src/context/tools.ts` into per-tool mod
 
 This keeps each tool independently testable and makes the public API surface explicit in one place.
 
+The public contract is now fully internal to GitGandalf:
+
+- each tool module exports `toolDefinition`, `inputSchema`, and its implementation
+- `src/context/tools/index.ts` assembles `TOOL_DEFINITIONS` using the internal `AgentToolDefinition` type
+- provider SDK tool types do not leak into the repo-facing tool layer
+
 ### Agent review subsystem
 
 Phase 3 adds the review logic itself under `src/agents/`.
 
 - `state.ts` defines `Finding` and `ReviewState`
-- `llm-client.ts` wraps the Anthropic Bedrock messages API
+- `protocol.ts` defines the app-owned agent message and tool contract
+- `llm-client.ts` adapts AWS Bedrock Runtime Converse to that internal contract
 - `context-agent.ts` derives MR intent, changed areas, and initial risk hypotheses
 - `investigator-agent.ts` runs the tool loop against the cloned repository context
 - `reflection-agent.ts` filters noise and assigns the review verdict
 - `orchestrator.ts` coordinates the three stages and allows one reinvestigation loop
 
 This review subsystem is implemented, tested, and wired into the full API pipeline.
+
+Important runtime detail: if Agent 2 calls a tool incorrectly or asks for a missing file, the tool error is converted into an error `tool_result` block and sent back to the model. The review continues instead of aborting the entire pipeline.
+
+Another current behavior worth knowing: only findings that can be anchored to the MR diff are published inline. Findings outside the diff are skipped for inline publication and summarized instead.
 
 ## What Is Still Planned
 
@@ -197,9 +209,10 @@ The target architecture in the master plan goes further than the current impleme
 
 - Bun is used directly for runtime, subprocesses, and file access to keep the stack small and fast.
 - Zod is used at all external boundaries so invalid inputs fail before they enter core logic.
+- The repo owns its own agent protocol so provider SDKs stay replaceable.
 - The tool system is split by file so future tools are modular and reusable.
 - The agent subsystem remains independently testable even though it is now wired into the full API pipeline.
 
 ## ELI5
 
-GitGandalf can receive a webhook, validate it, fire the full multi-agent review pipeline, and post inline comments plus a summary note back to GitLab. Every step emits structured JSON logs to stdout, each carrying the same `requestId` so you can trace a single review end-to-end in any log aggregator.
+GitGandalf receives a GitLab webhook, validates the important parts, fetches the MR and repo contents, lets three agents investigate the change, and posts the result back to GitLab. The code keeps Bedrock-specific details boxed into one adapter, and every log line carries the same request context so humans and agents can trace a review end to end.
