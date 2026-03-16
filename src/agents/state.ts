@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { z } from "zod";
-import type { DiffFile, MRDetails } from "../gitlab-client/types";
+import type { DiffFile, MRDetails, ParsedHunk } from "../gitlab-client/types";
 import type { AgentMessage } from "./protocol";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +21,7 @@ export const findingSchema = z.object({
   description: z.string(),
   evidence: z.string(),
   suggestedFix: z.string().optional(),
+  suggestedFixCode: z.string().optional(),
 });
 
 export type Finding = z.infer<typeof findingSchema>;
@@ -33,6 +34,8 @@ export interface ReviewState {
   // --- Input ---
   mrDetails: MRDetails;
   diffFiles: DiffFile[];
+  /** Structured hunks pre-parsed from diffFiles before the pipeline starts. */
+  diffHunks: ParsedHunk[];
   repoPath: string;
 
   // --- Agent 1 output ---

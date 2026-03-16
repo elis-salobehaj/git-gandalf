@@ -13,10 +13,12 @@ import { describe, expect, it, mock } from "bun:test";
 // Pure utility function imports — no LLM calls happen from these paths.
 import { buildContextPrompt, parseContextResponse } from "../src/agents/context-agent";
 import { buildInvestigatorPrompt, extractFindings } from "../src/agents/investigator-agent";
+import { loadAgentPrompt, loadPromptConfig } from "../src/agents/prompt-loader";
 import type { AgentMessage } from "../src/agents/protocol";
 import { textMessage } from "../src/agents/protocol";
 import { buildReflectionPrompt, parseReflectionResponse } from "../src/agents/reflection-agent";
 import type { ReviewState } from "../src/agents/state";
+import { parseDiffHunks } from "../src/context/diff-parser";
 
 // ---------------------------------------------------------------------------
 // Orchestrator mock setup — MUST come before the dynamic import of orchestrator
@@ -46,7 +48,7 @@ mock.module("../src/agents/investigator-agent", () => ({ investigatorLoop: mockI
 mock.module("../src/agents/reflection-agent", () => ({ reflectionAgent: mockReflectionAgent }));
 
 // Dynamic import AFTER mock.module so the orchestrator's agent imports are mocked.
-const { runReview } = await import("../src/agents/orchestrator");
+const { runReview, deduplicateFindings } = await import("../src/agents/orchestrator");
 
 // ---------------------------------------------------------------------------
 // Shared test fixture helpers
@@ -82,9 +84,11 @@ function makeDiffFile(path = "src/billing.ts") {
 }
 
 function makeBaseState(): ReviewState {
+  const diffFiles = [makeDiffFile()];
   return {
     mrDetails: makeMRDetails(),
-    diffFiles: [makeDiffFile()],
+    diffFiles,
+    diffHunks: parseDiffHunks(diffFiles),
     repoPath: "/tmp/test-repo",
     mrIntent: "Add Stripe payment integration for subscriptions.",
     changeCategories: ["billing", "API"],
@@ -108,6 +112,24 @@ function makeTextMessage(text: string): AgentMessage {
 // ---------------------------------------------------------------------------
 // context-agent — pure function tests
 // ---------------------------------------------------------------------------
+
+describe("prompt loader", () => {
+  it("loads YAML prompt config and renders structured sections for all agents", () => {
+    const config = loadPromptConfig();
+
+    expect(config.context_agent.role.length).toBeGreaterThan(0);
+    expect(config.investigator_agent.instructions.length).toBeGreaterThan(0);
+    expect(config.reflection_agent.output_schema.length).toBeGreaterThan(0);
+
+    const rendered = loadAgentPrompt("reflection_agent");
+    expect(rendered).toContain("<role>");
+    expect(rendered).toContain("</role>");
+    expect(rendered).toContain("<context>");
+    expect(rendered).toContain("<instructions>");
+    expect(rendered).toContain("<constraints>");
+    expect(rendered).toContain("<output_schema>");
+  });
+});
 
 describe("buildContextPrompt", () => {
   it("includes MR title and description", () => {
@@ -202,9 +224,17 @@ describe("buildInvestigatorPrompt", () => {
     expect(prompt).toContain("none");
   });
 
-  it("includes diff content", () => {
+  it("includes structured hunk content for diff files", () => {
     const prompt = buildInvestigatorPrompt(makeBaseState());
     expect(prompt).toContain("src/billing.ts");
+    expect(prompt).toContain("HUNK 1");
+    expect(prompt).toContain("const x = 2");
+  });
+
+  it("shows fallback when diffHunks is empty", () => {
+    const state = { ...makeBaseState(), diffHunks: [] };
+    const prompt = buildInvestigatorPrompt(state);
+    expect(prompt).toContain("no structured hunks available");
   });
 });
 
@@ -270,6 +300,121 @@ describe("extractFindings", () => {
     // extractFindings walks backwards — newMsg (last) is checked first
     const findings = extractFindings([oldMsg, textMessage("user", "ok"), newMsg]);
     expect(findings).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseDiffHunks — pure parser tests
+// ---------------------------------------------------------------------------
+
+describe("parseDiffHunks", () => {
+  it("returns empty array for empty input", () => {
+    expect(parseDiffHunks([])).toEqual([]);
+  });
+
+  it("parses a basic hunk with added and removed lines", () => {
+    const result = parseDiffHunks([makeDiffFile()]);
+    expect(result).toHaveLength(1);
+    expect(result[0].file).toBe("src/billing.ts");
+    expect(result[0].hunkIndex).toBe(1);
+    expect(result[0].newLineStart).toBe(1);
+    expect(result[0].newLineEnd).toBe(2);
+    expect(result[0].addedLines).toHaveLength(2);
+    expect(result[0].addedLines[0]).toEqual({ lineNumber: 1, content: "const x = 2;" });
+    expect(result[0].removedLines).toHaveLength(1);
+    expect(result[0].removedLines[0]).toEqual({ content: "const x = 1;" });
+  });
+
+  it("skips deleted files", () => {
+    const deletedFile = { ...makeDiffFile(), deletedFile: true };
+    expect(parseDiffHunks([deletedFile])).toHaveLength(0);
+  });
+
+  it("assigns sequential hunkIndex values for multiple hunks in one file", () => {
+    const twoHunkDiff = "@@ -1,2 +1,2 @@\n-old1\n+new1\n@@ -5,2 +5,2 @@\n-old2\n+new2\n";
+    const result = parseDiffHunks([{ ...makeDiffFile(), diff: twoHunkDiff }]);
+    expect(result).toHaveLength(2);
+    expect(result[0].hunkIndex).toBe(1);
+    expect(result[1].hunkIndex).toBe(2);
+  });
+
+  it("produces separate hunks for separate files", () => {
+    const result = parseDiffHunks([makeDiffFile("src/a.ts"), makeDiffFile("src/b.ts")]);
+    expect(result).toHaveLength(2);
+    expect(result[0].file).toBe("src/a.ts");
+    expect(result[1].file).toBe("src/b.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deduplicateFindings — orchestrator post-processor tests
+// ---------------------------------------------------------------------------
+
+describe("deduplicateFindings", () => {
+  const base = {
+    file: "src/foo.ts",
+    lineStart: 10,
+    lineEnd: 12,
+    riskLevel: "high" as const,
+    title: "Bug in foo",
+    description: "Something is wrong.",
+    evidence: "Line 10: bad code",
+  };
+
+  it("returns empty array unchanged", () => {
+    expect(deduplicateFindings([])).toEqual([]);
+  });
+
+  it("returns a single finding unchanged", () => {
+    expect(deduplicateFindings([base])).toEqual([base]);
+  });
+
+  it("removes exact duplicate (same file + start + end + title)", () => {
+    const result = deduplicateFindings([base, { ...base }]);
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe("Bug in foo");
+  });
+
+  it("merges overlapping ranges in the same file", () => {
+    const a = { ...base, lineStart: 10, lineEnd: 13, riskLevel: "high" as const };
+    const b = { ...base, lineStart: 12, lineEnd: 16, riskLevel: "medium" as const, title: "Second issue" };
+    const result = deduplicateFindings([a, b]);
+    expect(result).toHaveLength(1);
+    expect(result[0].lineStart).toBe(10);
+    expect(result[0].lineEnd).toBe(16);
+    expect(result[0].riskLevel).toBe("high");
+  });
+
+  it("uses highest risk level when merging", () => {
+    const a = { ...base, lineStart: 10, lineEnd: 12, riskLevel: "low" as const };
+    const b = { ...base, lineStart: 11, lineEnd: 14, riskLevel: "critical" as const, title: "Critical issue" };
+    const result = deduplicateFindings([a, b]);
+    expect(result[0].riskLevel).toBe("critical");
+  });
+
+  it("keeps non-overlapping findings in the same file separate", () => {
+    const a = { ...base, lineStart: 10, lineEnd: 12 };
+    const b = { ...base, lineStart: 20, lineEnd: 22, title: "Different issue" };
+    const result = deduplicateFindings([a, b]);
+    expect(result).toHaveLength(2);
+  });
+
+  it("keeps findings in different files separate even with the same line range", () => {
+    const a = { ...base, file: "src/foo.ts" };
+    const b = { ...base, file: "src/bar.ts" };
+    const result = deduplicateFindings([a, b]);
+    expect(result).toHaveLength(2);
+  });
+
+  it("handles three findings where two overlap and one is separate", () => {
+    const a = { ...base, lineStart: 10, lineEnd: 13 };
+    const b = { ...base, lineStart: 12, lineEnd: 15, title: "Overlap" };
+    const c = { ...base, lineStart: 40, lineEnd: 42, title: "Far away" };
+    const result = deduplicateFindings([a, b, c]);
+    expect(result).toHaveLength(2);
+    expect(result[0].lineStart).toBe(10);
+    expect(result[0].lineEnd).toBe(15);
+    expect(result[1].lineStart).toBe(40);
   });
 });
 

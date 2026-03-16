@@ -14,6 +14,7 @@ Concise, token-optimized reference for LLM agents. Prefer these over human docs 
 Detailed, visual documentation with Mermaid diagrams and full rationale.
 
 - [Architecture](./humans/context/ARCHITECTURE.md) — Current implemented architecture, internal protocol boundary, operational behavior, planned phases, and ELI5 explanation
+- [Multi-Agent Architecture](./humans/designs/multi-agent-architecture.md) — Agent pipeline diagram, per-agent inputs/outputs, data flow, known issues (duplicate findings, overlapping line ranges), and proposed improvements
 - [Tech Stack Design](./humans/designs/tech-stack-evaluation.md) — Complete ecosystem analysis and technology decisions
 
 ## 📚 Guides (`docs/guides/`)

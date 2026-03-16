@@ -93,7 +93,13 @@ function resolveInlineLine(finding: Finding, publishableLines: Map<string, Set<n
   return null;
 }
 
-export function formatFindingComment(finding: Finding): string {
+function buildSuggestionFenceHeader(finding: Finding, anchorLine: number): string {
+  const linesAbove = Math.max(anchorLine - finding.lineStart, 0);
+  const linesBelow = Math.max(finding.lineEnd - anchorLine, 0);
+  return `\`\`\`suggestion:-${linesAbove}+${linesBelow}`;
+}
+
+export function formatFindingComment(finding: Finding, anchorLine = finding.lineStart): string {
   const emoji = RISK_EMOJI[finding.riskLevel];
   const lines = [
     buildFindingMarker(finding),
@@ -105,7 +111,10 @@ export function formatFindingComment(finding: Finding): string {
   ];
 
   if (finding.suggestedFix) {
-    lines.push("", "**Suggested Fix**:", "```suggestion", finding.suggestedFix, "```");
+    lines.push("", `**Suggested Fix**: ${finding.suggestedFix}`);
+    if (finding.suggestedFixCode !== undefined) {
+      lines.push(buildSuggestionFenceHeader(finding, anchorLine), finding.suggestedFixCode, "```");
+    }
   }
 
   return lines.join("\n");
@@ -191,7 +200,7 @@ export class GitLabPublisher {
       }
 
       try {
-        await this.gitlab.createInlineDiscussion(projectId, mrIid, formatFindingComment(finding), {
+        await this.gitlab.createInlineDiscussion(projectId, mrIid, formatFindingComment(finding, inlineLine), {
           baseSha: diffRefs.baseSha,
           startSha: diffRefs.startSha,
           headSha: diffRefs.headSha,

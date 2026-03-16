@@ -51,6 +51,7 @@ function makeBaseState(): ReviewState {
         diff: "@@ -1,3 +1,5 @@\n-const x = 1;\n+const x = 2;\n+const y = 3;\n",
       },
     ],
+    diffHunks: [],
     repoPath: SANDBOX,
     mrIntent: "",
     changeCategories: [],

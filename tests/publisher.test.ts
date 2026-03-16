@@ -3,6 +3,7 @@ import type { Finding } from "../src/agents/state";
 import type { GitLabClient } from "../src/gitlab-client/client";
 import type { DiffFile, Discussion, Note } from "../src/gitlab-client/types";
 import { formatFindingComment, formatSummaryComment, GitLabPublisher } from "../src/publisher/gitlab-publisher";
+import { normalizeSuggestionCodeForRange } from "../src/publisher/suggestion-normalizer";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -16,7 +17,8 @@ const criticalFinding: Finding = {
   title: "Missing authentication check",
   description: "The route handler does not verify the JWT before proceeding.",
   evidence: "Line 42 calls `next()` without checking `req.user`.",
-  suggestedFix: "if (!req.user) return res.status(401).json({ error: 'Unauthorized' });",
+  suggestedFix: "Add an auth guard before calling next().",
+  suggestedFixCode: "if (!req.user) return res.status(401).json({ error: 'Unauthorized' });\nnext();",
 };
 
 const lowFinding: Finding = {
@@ -79,8 +81,36 @@ describe("formatFindingComment", () => {
   it("includes suggested fix block when present", () => {
     const comment = formatFindingComment(criticalFinding);
     expect(comment).toContain("**Suggested Fix**:");
-    expect(comment).toContain("```suggestion");
     expect(comment).toContain(criticalFinding.suggestedFix as string);
+    expect(comment).toContain("```suggestion:-0+3");
+    expect(comment).toContain(criticalFinding.suggestedFixCode as string);
+  });
+
+  it("suggestion block is empty for deletion findings", () => {
+    const deletionFinding: Finding = {
+      ...criticalFinding,
+      suggestedFix: "Remove this line entirely.",
+      suggestedFixCode: "",
+    };
+    const comment = formatFindingComment(deletionFinding);
+    expect(comment).toContain("**Suggested Fix**: Remove this line entirely.");
+    expect(comment).toContain("```suggestion:-0+3");
+  });
+
+  it("uses explicit offsets when the anchor is inside the finding range", () => {
+    const comment = formatFindingComment(criticalFinding, 43);
+    expect(comment).toContain("```suggestion:-1+2");
+  });
+
+  it("omits suggestion block when suggestedFixCode is absent", () => {
+    const noCodeFinding: Finding = {
+      ...criticalFinding,
+      suggestedFix: "Refactor this module.",
+      suggestedFixCode: undefined,
+    };
+    const comment = formatFindingComment(noCodeFinding);
+    expect(comment).toContain("**Suggested Fix**: Refactor this module.");
+    expect(comment).not.toContain("```suggestion");
   });
 
   it("omits suggested fix block when absent", () => {
@@ -99,6 +129,39 @@ describe("formatFindingComment", () => {
       const f: Finding = { ...lowFinding, riskLevel: level };
       expect(formatFindingComment(f)).toContain(emoji);
     }
+  });
+});
+
+describe("normalizeSuggestionCodeForRange", () => {
+  it("strips unchanged surrounding context from a hallucinated full-snippet suggestion", () => {
+    const fileContent = [
+      "#!/bin/bash",
+      "this is a coding error supposed to be caught by review",
+      'echo "Setting up service dependencies not managed through gradle"',
+      "sudo apt-get update && sudo apt-get install openjdk-17-jdk",
+      "",
+    ].join("\n");
+
+    const suggestion = [
+      "#!/bin/bash",
+      'echo "Setting up service dependencies not managed through gradle"',
+      "sudo apt-get update && sudo apt-get install openjdk-17-jdk",
+    ].join("\n");
+
+    expect(normalizeSuggestionCodeForRange(fileContent, 2, 2, suggestion)).toBe("");
+  });
+
+  it("keeps precise local replacement code unchanged", () => {
+    const fileContent = ["const count = 0;", "return count;", ""].join("\n");
+    const suggestion = "const count = 1;";
+
+    expect(normalizeSuggestionCodeForRange(fileContent, 1, 1, suggestion)).toBe(suggestion);
+  });
+
+  it("drops no-op suggestions that reproduce the original range", () => {
+    const fileContent = ["const count = 0;", "return count;", ""].join("\n");
+
+    expect(normalizeSuggestionCodeForRange(fileContent, 1, 1, "const count = 0;")).toBeUndefined();
   });
 });
 

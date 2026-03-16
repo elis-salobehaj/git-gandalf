@@ -1,9 +1,11 @@
 import { runReview } from "../agents/orchestrator";
 import type { ReviewState } from "../agents/state";
+import { parseDiffHunks } from "../context/diff-parser";
 import { RepoManager } from "../context/repo-manager";
 import { GitLabClient } from "../gitlab-client/client";
 import { getLogger, withContext } from "../logger";
 import { GitLabPublisher } from "../publisher/gitlab-publisher";
+import { normalizeFindingsForPublication } from "../publisher/suggestion-normalizer";
 import type { WebhookPayload } from "./schemas";
 
 const logger = getLogger(["gandalf", "pipeline"]);
@@ -37,6 +39,7 @@ export async function runPipeline(event: WebhookPayload): Promise<void> {
     const initialState: ReviewState = {
       mrDetails,
       diffFiles,
+      diffHunks: parseDiffHunks(diffFiles),
       repoPath,
       mrIntent: "",
       changeCategories: [],
@@ -51,6 +54,29 @@ export async function runPipeline(event: WebhookPayload): Promise<void> {
 
     const finalState = await runReview(initialState);
 
+    for (const f of finalState.verifiedFindings) {
+      logger.debug("Verified finding pre-normalization", {
+        file: f.file,
+        lineStart: f.lineStart,
+        lineEnd: f.lineEnd,
+        riskLevel: f.riskLevel,
+        hasSuggestedFixCode: f.suggestedFixCode !== undefined,
+        suggestedFixCode: f.suggestedFixCode,
+      });
+    }
+
+    const publishableFindings = await normalizeFindingsForPublication(repoPath, finalState.verifiedFindings);
+
+    for (const f of publishableFindings) {
+      logger.debug("Publishable finding post-normalization", {
+        file: f.file,
+        lineStart: f.lineStart,
+        lineEnd: f.lineEnd,
+        hasSuggestedFixCode: f.suggestedFixCode !== undefined,
+        suggestedFixCode: f.suggestedFixCode,
+      });
+    }
+
     // 4. Publish inline comments for each verified finding, then a summary note
     const diffRefs = {
       baseSha: mrDetails.baseSha,
@@ -58,13 +84,13 @@ export async function runPipeline(event: WebhookPayload): Promise<void> {
       startSha: mrDetails.startSha,
     };
 
-    await publisher.postInlineComments(projectId, mrIid, finalState.verifiedFindings, diffRefs, diffFiles);
-    await publisher.postSummaryComment(projectId, mrIid, finalState.summaryVerdict, finalState.verifiedFindings);
+    await publisher.postInlineComments(projectId, mrIid, publishableFindings, diffRefs, diffFiles);
+    await publisher.postSummaryComment(projectId, mrIid, finalState.summaryVerdict, publishableFindings);
 
     logger.info("Review complete", {
       mrIid,
       verdict: finalState.summaryVerdict,
-      findings: finalState.verifiedFindings.length,
+      findings: publishableFindings.length,
     });
   });
 }

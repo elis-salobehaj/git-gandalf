@@ -1,43 +1,10 @@
-// ---------------------------------------------------------------------------
-// Agent 1 — Context & Intent Mapper
-//
-// Analyses the MR title, description, and diff to determine:
-//  • mrIntent          — what the developer is trying to achieve
-//  • changeCategories  — areas of the codebase affected (auth, API, DB…)
-//  • riskAreas         — hypotheses for Agent 2 to investigate
-//
-// No tools — works only from the data passed in the prompt.
-// Output is strict JSON validated with Zod at the external boundary.
-// ---------------------------------------------------------------------------
-
 import { z } from "zod";
 import { chatCompletion } from "./llm-client";
+import { loadAgentPrompt } from "./prompt-loader";
 import { type AgentMessage, firstTextBlock, textMessage } from "./protocol";
 import type { ReviewState } from "./state";
 
-// ---------------------------------------------------------------------------
-// System prompt
-// ---------------------------------------------------------------------------
-
-const CONTEXT_AGENT_SYSTEM_PROMPT = `You are GitGandalf, an expert code-review AI.
-Your task is to analyse a GitLab Merge Request and produce a structured summary.
-
-You will be given the MR title, description, and the raw git diff.
-
-Respond ONLY with a single JSON object — no prose, no markdown fences — in this exact shape:
-{
-  "intent": "<one sentence describing what the developer is trying to achieve>",
-  "categories": ["<area1>", "<area2>"],
-  "riskHypotheses": ["<hypothesis1>", "<hypothesis2>"]
-}
-
-Guidelines:
-- "intent" must be a single declarative sentence.
-- "categories" should name high-level concern areas: e.g. "authentication", "database", "API layer", "configuration", "UI", "dependencies".
-- "riskHypotheses" are specific, testable questions for investigation, e.g.
-    "The DB schema changed — check whether all DTOs and migration scripts are updated."
-    "A public API signature changed — verify all callers are updated."
-- Limit to the 5 most important hypotheses. Return [] if the change is trivial.`;
+const CONTEXT_AGENT_SYSTEM_PROMPT = loadAgentPrompt("context_agent");
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM output validation
@@ -95,9 +62,15 @@ export function parseContextResponse(response: AgentMessage): {
     throw new Error("Context agent returned no text block");
   }
 
+  // Strip optional ```json ... ``` code fence the LLM sometimes wraps output in
+  const stripped = textBlock.text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+
   let raw: unknown;
   try {
-    raw = JSON.parse(textBlock.text.trim());
+    raw = JSON.parse(stripped);
   } catch {
     throw new Error(`Context agent returned unparseable JSON:\n${textBlock.text}`);
   }

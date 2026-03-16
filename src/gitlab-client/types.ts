@@ -23,9 +23,15 @@ export interface MRDetails {
   startSha: string;
 }
 
-export interface DiffHunk {
+export interface ParsedHunk {
+  file: string;
+  hunkIndex: number;
   header: string;
-  lines: string;
+  newLineStart: number;
+  newLineEnd: number;
+  addedLines: Array<{ lineNumber: number; content: string }>;
+  removedLines: Array<{ content: string }>;
+  contextLines: Array<{ lineNumber: number; content: string }>;
 }
 
 export interface DiffFile {

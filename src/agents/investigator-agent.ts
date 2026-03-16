@@ -1,62 +1,12 @@
-// ---------------------------------------------------------------------------
-// Agent 2 — Socratic Investigator
-//
-// Given the risk hypotheses from Agent 1, iteratively:
-//  1. Forms a specific investigative question.
-//  2. Uses tools (read_file, search_codebase, get_directory_structure) to find
-//     evidence.
-//  3. Records concrete findings: file, line range, risk level, evidence, fix.
-//
-// The tool loop runs until the LLM stops requesting tools (stop_reason ===
-// "end_turn") or config.MAX_TOOL_ITERATIONS is reached.
-//
-// At end_turn, the agent emits a JSON array of findings in its final text block.
-// ---------------------------------------------------------------------------
-
 import { z } from "zod";
 import { config } from "../config";
 import { executeTool, TOOL_DEFINITIONS } from "../context/tools";
 import { chatCompletion } from "./llm-client";
+import { loadAgentPrompt } from "./prompt-loader";
 import { type AgentMessage, textMessage, toolCallBlocks } from "./protocol";
 import { type Finding, findingSchema, type ReviewState } from "./state";
 
-// ---------------------------------------------------------------------------
-// System prompt
-// ---------------------------------------------------------------------------
-
-const INVESTIGATOR_SYSTEM_PROMPT = `You are GitGandalf, an expert code-review AI performing deep investigation.
-
-You have access to tools that let you explore the repository:
-- read_file: read a file's contents
-- search_codebase: full-text regex search across the repo
-- get_directory_structure: list the directory tree
-
-**Your mission:**
-For each risk hypothesis given to you, form a specific question and use your tools to find evidence.
-Investigate thoroughly — look beyond the diff into related files, callers, dependants, and tests.
-
-**When you are done investigating**, stop calling tools and output ONLY a JSON array of findings.
-Each finding must match this schema EXACTLY (no markdown fences, no prose — just the raw array):
-[
-  {
-    "file": "src/path/to/file.ts",
-    "lineStart": 42,
-    "lineEnd": 45,
-    "riskLevel": "critical|high|medium|low",
-    "title": "Short title of the issue",
-    "description": "What is wrong and why it matters",
-    "evidence": "Specific code or output from tools that proves the issue",
-    "suggestedFix": "Optional: concrete suggestion"
-  }
-]
-
-If you find no issues, output an empty array: []
-
-Rules:
-- Only report findings with concrete evidence from your tool calls. No speculation.
-- Exclude formatting/style/linting issues — those are handled by CI.
-- Focus on: logic bugs, security vulnerabilities, race conditions, missing error handling,
-  breaking API changes, data integrity issues, missing tests for critical paths.`;
+const INVESTIGATOR_SYSTEM_PROMPT = loadAgentPrompt("investigator_agent");
 
 // ---------------------------------------------------------------------------
 // Response-parsing schemas
@@ -73,12 +23,20 @@ const toolInputSchema = z.record(z.string(), z.unknown());
  * Build the initial investigator user prompt from context-agent output.
  */
 export function buildInvestigatorPrompt(state: ReviewState): string {
-  const MAX_DIFF_CHARS = 6_000;
+  const MAX_HUNK_CHARS = 6_000;
 
-  const diffSummary = state.diffFiles
-    .map((f) => `--- ${f.oldPath}\n+++ ${f.newPath}\n${f.diff}`)
-    .join("\n\n")
-    .slice(0, MAX_DIFF_CHARS);
+  const hunkSummary =
+    state.diffHunks.length === 0
+      ? "(no structured hunks available)"
+      : state.diffHunks
+          .map((h) => {
+            const addedStr = h.addedLines.map((l) => `+ (L${l.lineNumber}) ${l.content}`).join("\n");
+            const removedStr = h.removedLines.map((l) => `- (removed) ${l.content}`).join("\n");
+            const parts = [addedStr, removedStr].filter(Boolean).join("\n");
+            return `FILE: ${h.file} | HUNK ${h.hunkIndex} | new lines ${h.newLineStart}\u2013${h.newLineEnd}\n${h.header}\n${parts}`;
+          })
+          .join("\n\n")
+          .slice(0, MAX_HUNK_CHARS);
 
   const hypotheses = state.riskAreas.length
     ? state.riskAreas.map((h, i) => `${i + 1}. ${h}`).join("\n")
@@ -94,8 +52,8 @@ export function buildInvestigatorPrompt(state: ReviewState): string {
     `## Risk Hypotheses to Investigate`,
     hypotheses,
     ``,
-    `## Diff (truncated to ${MAX_DIFF_CHARS} chars)`,
-    diffSummary,
+    `## Diff Hunks (${state.diffHunks.length} total, capped at ${MAX_HUNK_CHARS} chars)`,
+    hunkSummary,
   ].join("\n");
 }
 
