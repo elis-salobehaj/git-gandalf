@@ -112,6 +112,8 @@ Current tests:
 
 Use the repository's actual `bun test` output as the source of truth for suite size. The count changes as the implementation evolves.
 
+> **Important**: always run tests with `bun test`, not through VS Code's built-in test runner. `tests/agents-entrypoints.test.ts` uses `mock.module()` + top-level `await import()`, which relies on Bun's per-file module isolation. VS Code's test runner does not guarantee per-file module isolation, so those 5 tests will report failures even though the implementation is correct. `bun test` is the authoritative test runner for this project.
+
 ## Working on tools
 
 Tool modules live under `src/context/tools/`.

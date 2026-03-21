@@ -97,7 +97,7 @@ Important limits:
 
 - system hooks are an administrator feature for GitLab Self-Managed and GitLab Dedicated, not the general GitLab.com path
 - the current runtime is built around merge request and note events; a system hook covers merge request review triggers, but `/ai-review` note-triggered reviews still need a project-level or group-level webhook path
-- if you need compatibility with both GitLab.com and self-hosted deployments, keep project webhooks as the baseline configuration until the planned Phase 4.6 compatibility work is complete
+- if you need both automatic MR reviews and manual `/ai-review` comment triggers, project or group webhooks are the baseline configuration since system hooks do not deliver note events
 
 ### Option A: project webhook
 
@@ -204,7 +204,6 @@ For self-hosted GitLab system hooks, remember one more constraint: the GitLab in
 Jira ticket fetching is live and optional. When enabled, GitGandalf reads ticket keys from the MR title and description, fetches each ticket from the Jira REST API, and passes the context to Agent 1 before the review begins. This step always degrades gracefully — if Jira is unavailable or a ticket cannot be fetched, the review continues without ticket context.
 
 The integration is **disabled by default** (`JIRA_ENABLED=false`). Existing deployments are unaffected until you opt in.
-
 ### Jira API token
 
 GitGandalf uses Jira Cloud's REST API v3 with Basic Auth. The credential is `email:api_token`, base64-encoded in each request header.
@@ -259,6 +258,52 @@ Required values:
 If Bedrock auth is misconfigured, the webhook can still return `202 Accepted` because the
 review runs in the background, but the pipeline will later fail in `logs/gg-dev.log` with
 credential or authorization errors.
+
+## GitLab deployment compatibility
+
+GitGandalf works with both GitLab.com and self-hosted GitLab (GitLab Self-Managed and GitLab Dedicated) without any deployment-mode flag. The supported auth and URL combinations are documented below.
+
+### Supported deployment matrix
+
+| Deployment | API auth | Clone auth | TLS cert | Notes |
+|---|---|---|---|---|
+| **GitLab.com** | PAT via `GITLAB_TOKEN` | `oauth2:<token>@gitlab.com` | Public (trusted by default) | No extra config needed |
+| **Self-hosted — public cert** | PAT via `GITLAB_TOKEN` | `oauth2:<token>@your-host` | Public or valid CA (trusted) | No extra config needed |
+| **Self-hosted — internal CA** | PAT via `GITLAB_TOKEN` | `oauth2:<token>@your-host` | Privately signed (enterprise PKI) | Set `GITLAB_CA_FILE` (see below) |
+
+### Token types
+
+GitGandalf uses a Personal Access Token (PAT) in two places:
+- **GitLab REST API calls** — `@gitbeaker/rest` uses `GITLAB_TOKEN` as a private token
+- **HTTPS git clone / fetch** — the token is injected as `oauth2:<token>` HTTP basic auth in the clone URL
+
+The `oauth2` username with the PAT as the password is the standard GitLab HTTPS clone auth mechanism. It works identically for GitLab.com and self-hosted instances. No SSH key setup is required.
+
+### GitLab URL with a subpath
+
+If your self-hosted GitLab is deployed at a subpath (e.g. `https://company.com/gitlab`), set `GITLAB_URL` to the full base path including the subpath:
+
+```env
+GITLAB_URL=https://company.com/gitlab
+```
+
+Both the REST API client and the SSRF host guard use this value directly. The clone URL host is validated against `GITLAB_URL`'s hostname component, so both root and subpath deployments are handled without extra config.
+
+### Self-hosted GitLab with an internal / enterprise CA
+
+If your GitLab instance uses a certificate signed by an internal CA (common in enterprise environments), git clone operations and API calls will fail with TLS errors unless GitGandalf is told about the CA.
+
+Set `GITLAB_CA_FILE` to the absolute path of a PEM-encoded CA bundle:
+
+```env
+GITLAB_CA_FILE=/etc/ssl/certs/your-internal-ca.pem
+```
+
+What this does at runtime:
+- **Git subprocesses** (`clone`, `fetch`): `GIT_SSL_CAINFO` is injected into the subprocess environment so git uses the CA bundle for HTTPS certificate verification
+- **API client** (`@gitbeaker/rest`): `NODE_EXTRA_CA_CERTS` is set to the same path at startup (`src/index.ts`), before any TLS connections are opened, so Bun's TLS layer trusts the CA bundle for all outgoing HTTPS requests
+
+The CA bundle file must be readable by the GitGandalf process. In Docker, mount the file into the container and set `GITLAB_CA_FILE` to the mounted path. For enterprise deployments the bundle is typically the organization's root CA certificate in PEM format.
 
 ## 3. Start the service
 
@@ -319,7 +364,6 @@ Set `LOG_LEVEL=debug` for verbose per-agent output, or `LOG_LEVEL=warn` for quie
 
 Still planned:
 
-- Phase 4.6 GitLab.com and self-hosted compatibility hardening
 - Phase 5 production hardening (task queue, Kubernetes, provider fallback)
 
 ## Useful next commands

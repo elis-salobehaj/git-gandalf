@@ -41,7 +41,9 @@ Implemented in `src/context/repo-manager.ts`.
 - first fetch path: shallow clone
 - refresh path: shallow fetch with explicit refspec + hard reset to `origin/<branch>`
 - cleanup path: delete cached directories older than TTL
-- security gate: clone URL host must match `config.GITLAB_URL`
+- security gate: clone URL hostname must match `config.GITLAB_URL`
+- TLS / custom CA: `buildGitEnv(config.GITLAB_CA_FILE)` is called inside every git subprocess spawn; when `GITLAB_CA_FILE` is set it adds `GIT_SSL_CAINFO` to the subprocess env so git trusts the configured CA bundle. `NODE_EXTRA_CA_CERTS` is set from the same value at startup (`src/index.ts`) for the `@gitbeaker/rest` API client
+- clone auth: GitLab token injected as `oauth2:<token>` HTTP basic credentials in the clone URL; no SSH key setup required
 
 ## 3. Tool Execution Workflow
 

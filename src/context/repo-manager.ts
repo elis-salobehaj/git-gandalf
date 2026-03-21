@@ -2,6 +2,22 @@ import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config";
 
+// ---------------------------------------------------------------------------
+// buildGitEnv — pure helper exported for unit testing
+//
+// Builds the extra environment variables injected into every git subprocess.
+// When a custom CA bundle is configured (self-hosted GitLab with an internal
+// PKI), GIT_SSL_CAINFO points git at that file so TLS verification succeeds.
+// The same file is set as NODE_EXTRA_CA_CERTS at startup (src/index.ts) for
+// @gitbeaker/rest HTTP requests.
+// ---------------------------------------------------------------------------
+export function buildGitEnv(caFile?: string): Record<string, string> {
+  if (caFile) {
+    return { GIT_SSL_CAINFO: caFile };
+  }
+  return {};
+}
+
 export class RepoManager {
   private getCacheKey(projectId: number, branch: string): string {
     return `${projectId}-${encodeURIComponent(branch)}`;
@@ -109,10 +125,14 @@ export class RepoManager {
   /**
    * Spawn a command using `Bun.spawn()` and return its stdout as a string.
    * Throws a descriptive error if the command exits with a non-zero code.
+   * When GITLAB_CA_FILE is configured, GIT_SSL_CAINFO is injected into the
+   * subprocess env so git uses the custom CA bundle for HTTPS operations.
    */
   private async run(cmd: string[], cwd?: string): Promise<string> {
+    const extraEnv = buildGitEnv(config.GITLAB_CA_FILE);
     const proc = Bun.spawn(cmd, {
       cwd,
+      env: { ...process.env, ...extraEnv },
       stdout: "pipe",
       stderr: "pipe",
     });

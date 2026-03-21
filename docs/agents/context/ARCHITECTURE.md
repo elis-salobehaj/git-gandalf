@@ -52,6 +52,8 @@ Concise reference for the architecture implemented in the current repo.
 - refresh path: `git fetch origin refs/heads/<branch>:refs/remotes/origin/<branch> --depth 1` then `git reset --hard origin/<branch>`
 - cleanup: TTL eviction using directory `mtime`
 - host guard: clone URL hostname must match `config.GITLAB_URL`
+- TLS / custom CA: when `GITLAB_CA_FILE` is set, `GIT_SSL_CAINFO` is injected into every git subprocess via `buildGitEnv()`; `NODE_EXTRA_CA_CERTS` is set at startup in `src/index.ts` so `@gitbeaker/rest` fetch calls trust the same CA bundle
+- auth: GitLab token injected as `oauth2:<token>` HTTP basic auth in clone URLs; works for both GitLab.com and self-hosted deployments with PAT tokens
 
 ### Tool surface
 

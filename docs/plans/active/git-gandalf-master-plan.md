@@ -85,9 +85,11 @@ completion:
   - [x] 4.5.5 Tests + docs for Jira setup, field mapping, and failure modes
   - [x] Remediation complete — see `docs/plans/review-reports/phase-4.5-review-2026-03-20-p9k2.md`
   - "# Phase 4.6 — GitLab Deployment Hardening"
-  - [ ] 4.6.1 Verify and document supported GitLab deployment/auth combinations
-  - [ ] 4.6.2 Add concrete transport/auth hardening only where current behavior is insufficient
-  - [ ] 4.6.3 Add tests for host validation, TLS/custom-CA behavior, and clone/API compatibility
+  - [x] 4.6.1 Verify and document supported GitLab deployment/auth combinations
+  - [x] 4.6.2 Add concrete transport/auth hardening only where current behavior is insufficient
+  - [x] 4.6.3 Add tests for host validation, TLS/custom-CA behavior, and clone/API compatibility
+  - [x] Remediation complete — see `docs/plans/review-reports/phase-4.6-review-2026-03-20-r7n1.md`
+  - [x] Re-review remediation complete — see `docs/plans/review-reports/phase-4.6-review-2026-03-20-w2k5.md`
   - "# Phase 5 — Production Hardening (Future)"
   - [ ] 5.1 Task Queue (BullMQ + Valkey)
   - [ ] 5.2 Kubernetes (KinD / EKS / GKE)

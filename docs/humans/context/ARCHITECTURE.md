@@ -88,7 +88,8 @@ git-gandalf/
 | `src/index.ts`, `src/api/`, `src/config.ts` | Implemented | Phase 1 | Webhook ingress, health endpoint, permissive-required payload validation, and config loading are live. |
 | `src/logger.ts` | Implemented | Logging plan | Structured JSON logging via LogTape; `LOG_LEVEL` wired; request correlation via `withContext()`. |
 | `src/gitlab-client/` | Implemented | Phase 1 | Typed GitLab wrapper exists, including read and write methods needed by later phases. |
-| `src/context/repo-manager.ts` | Implemented | Phase 2 | Shallow clone/update cache manager with TTL cleanup and host validation. |
+| `src/context/repo-manager.ts` | Implemented | Phase 2 + Phase 4.6 | Shallow clone/update cache manager with TTL cleanup and host validation. Phase 4.6 added `buildGitEnv()` (exported pure function) which injects `GIT_SSL_CAINFO` into every git subprocess when `GITLAB_CA_FILE` is set. |
+| `src/config.ts` — `GITLAB_CA_FILE` | Implemented | Phase 4.6 | Optional Zod string. When set, drives `GIT_SSL_CAINFO` injection in git subprocesses and `NODE_EXTRA_CA_CERTS` at startup for `@gitbeaker/rest` API calls. Enables self-hosted GitLab instances that use an internal or enterprise CA. |
 | `src/context/tools/` | Implemented | Phase 2 and 2.5 | Tool surface exists, is modularized one-tool-per-file, and uses the app-owned tool-definition contract. |
 | `src/agents/` | Implemented | Phase 3 | Shared state, internal protocol, Bedrock Runtime adapter, context agent, investigator agent, reflection agent, and orchestrator are implemented and invoked by the API pipeline. |
 | `src/publisher/` | Implemented | Phase 4 | GitLab publisher posts inline comments and a summary comment, with duplicate detection and diff-position anchoring. |
@@ -163,6 +164,7 @@ The wrapper also handles gitbeaker's awkward snake_case response shapes and came
 - first-time path: `git clone --depth 1 --branch <branch>`
 - refresh path: `git fetch origin refs/heads/<branch>:refs/remotes/origin/<branch> --depth 1` + `git reset --hard origin/<branch>`
 - cleanup: TTL-based eviction using directory `mtime`
+- TLS / custom CA (Phase 4.6): `buildGitEnv(config.GITLAB_CA_FILE)` is called inside `run()` before every `Bun.spawn()` call. When `GITLAB_CA_FILE` is set, `GIT_SSL_CAINFO` is added to the subprocess env so git trusts the custom CA bundle for HTTPS operations. The same file is set as `NODE_EXTRA_CA_CERTS` at startup in `src/index.ts` for the `@gitbeaker/rest` API client. `buildGitEnv()` is a pure exported function so it can be unit-tested without spawning real git processes.
 
 Security detail: the clone URL hostname must match `GITLAB_URL`. The manager refuses to inject the GitLab token into a different host, which blocks token exfiltration through a malicious webhook payload.
 

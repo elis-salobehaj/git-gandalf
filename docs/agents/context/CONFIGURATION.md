@@ -24,6 +24,7 @@ Compact reference for all environment variables accepted by `src/config.ts`.
 | `JIRA_ACCEPTANCE_CRITERIA_FIELD_ID` | no | string | none | Optional custom-field ID for acceptance criteria content, e.g. `customfield_12345`. When set, that field's value is included in the normalized `JiraTicket`. |
 | `JIRA_MAX_TICKETS` | no | positive integer | `5` | Maximum ticket fetches per pipeline run. Caps blast radius when many keys appear in the MR. |
 | `JIRA_TICKET_TIMEOUT_MS` | no | positive integer | `5000` | Per-ticket HTTP timeout in milliseconds. Each `fetchJiraTicket()` call uses an `AbortController` to enforce this limit. |
+| `GITLAB_CA_FILE` | no | file path string | none | Path to a PEM-encoded CA bundle for self-hosted GitLab instances that use a privately-signed certificate (internal / enterprise CA). When set, injected as `GIT_SSL_CAINFO` into every git subprocess (clone, fetch) and set as `NODE_EXTRA_CA_CERTS` at startup so `@gitbeaker/rest` API calls also trust the custom root. |
 
 ## Validation Rules
 

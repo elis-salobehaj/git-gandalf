@@ -31,8 +31,15 @@ const envSchema = z.object({
   JIRA_MAX_TICKETS: z.coerce.number().int().positive().default(5),
   // Per-ticket fetch timeout in milliseconds.
   JIRA_TICKET_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
-});
 
+  // GitLab deployment hardening (Phase 4.6)
+  // Path to a PEM-encoded CA bundle for self-hosted GitLab instances that use
+  // a privately-signed certificate (internal / enterprise CA).
+  // When set, GitGandalf injects this file into every git subprocess via
+  // GIT_SSL_CAINFO and exposes it via NODE_EXTRA_CA_CERTS for the
+  // @gitbeaker/rest HTTP client at startup.
+  GITLAB_CA_FILE: z.string().optional(),
+});
 export type Config = z.infer<typeof envSchema>;
 
 export const config = envSchema.parse(process.env);

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdir, rm, stat, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../src/config";
-import { RepoManager } from "../src/context/repo-manager";
+import { buildGitEnv, RepoManager } from "../src/context/repo-manager";
 
 // ---------------------------------------------------------------------------
 // All integration tests use config.REPO_CACHE_DIR, which is pointed at the
@@ -135,5 +135,35 @@ describe("RepoManager.cloneOrUpdate SSRF guard", () => {
     const manager = new RepoManager();
     const expected = new URL(config.GITLAB_URL).hostname;
     await expect(manager.cloneOrUpdate("https://evil.attacker.com/org/repo.git", "main", 1)).rejects.toThrow(expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildGitEnv — Phase 4.6 TLS / custom-CA helper
+// ---------------------------------------------------------------------------
+
+describe("buildGitEnv", () => {
+  it("returns an empty object when caFile is undefined", () => {
+    expect(buildGitEnv(undefined)).toEqual({});
+  });
+
+  it("returns an empty object when caFile is an empty string", () => {
+    expect(buildGitEnv("")).toEqual({});
+  });
+
+  it("returns GIT_SSL_CAINFO when caFile is a non-empty path", () => {
+    expect(buildGitEnv("/etc/ssl/certs/internal-ca.pem")).toEqual({
+      GIT_SSL_CAINFO: "/etc/ssl/certs/internal-ca.pem",
+    });
+  });
+
+  it("does not include any other keys when only caFile is set", () => {
+    const env = buildGitEnv("/tmp/ca.pem");
+    expect(Object.keys(env)).toEqual(["GIT_SSL_CAINFO"]);
+  });
+
+  it("passes the exact caFile path through unchanged", () => {
+    const path = "/opt/pki/company-root-ca.crt";
+    expect(buildGitEnv(path).GIT_SSL_CAINFO).toBe(path);
   });
 });

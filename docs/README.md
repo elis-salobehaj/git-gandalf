@@ -24,7 +24,7 @@ Detailed, visual documentation with Mermaid diagrams and full rationale.
 
 ## 📋 Implementation Plans (`docs/plans/`)
 
-- **Active**: [GitGandalf Master Plan](./plans/active/git-gandalf-master-plan.md) — Phases 1–4.5 complete, with GitLab deployment hardening scoped to concrete gaps, and Jira write actions deferred to Phase 6
+- **Active**: [GitGandalf Master Plan](./plans/active/git-gandalf-master-plan.md) — Phases 1–4.6 complete, with Jira write actions deferred to Phase 6
 - **Active**: [Gandalf Awakening Personality Plan](./plans/active/Gandalf-awakening-personality-plan.md) — Trigger alias expansion, Gandalf-mode acknowledgements, and tone-aware top-level summary behavior
 - **Active**: [Review Edge Cases Hardening](./plans/active/review-edge-cases-hardening.md) — Incremental multi-commit review ranges, manual `/ai-review` override semantics, version-aware dedupe, and repo freshness/concurrency hardening
 - **Backlog**: [Deno Runtime Evaluation And Migration Plan](./plans/backlog/deno-runtime-evaluation-and-migration-plan.md) — Security-first runtime evaluation, Bun-to-Deno rewrite scope, replacement matrix, and spike-first migration path
@@ -41,7 +41,7 @@ Detailed, visual documentation with Mermaid diagrams and full rationale.
 | **Phase 3** | ✅ Complete | Shared review state, internal protocol, Bedrock Runtime adapter, context/investigator/reflection agents, orchestrator, and Phase 3 test coverage |
 | **Phase 4** | ✅ Complete | GitLab publisher (inline comments, summary note, duplicate guard), full pipeline wiring, Dockerfile, Docker Compose, README |
 | **Phase 4.5** | ✅ Complete | Jira read-only client, ticket-key extraction from MR title/description, pipeline enrichment, Agent 1 prompt context, ADF description parsing, acceptance-criteria custom-field support |
-| **Phase 4.6** | ⬜ Planned | GitLab.com plus self-hosted compatibility, explicit deployment flag, and auth/host validation updates |
+| **Phase 4.6** | ✅ Complete | `GITLAB_CA_FILE` TLS/custom-CA support for self-hosted GitLab; `buildGitEnv()` injects `GIT_SSL_CAINFO` into git spawns; `NODE_EXTRA_CA_CERTS` set at startup for API client; host validation and auth documented; deployment matrix in GETTING_STARTED.md |
 | **Logging** | ✅ Complete | LogTape structured logging, `LOG_LEVEL` wired, `@logtape/hono` middleware, request correlation via `withContext()`, debug log file at `logs/gg-dev.log` |
 | **Phase 5** | ⬜ Planned | Hardening, BullMQ queue, Kubernetes |
 
@@ -61,9 +61,9 @@ Implemented today:
 - Dockerfile and Docker Compose for self-hosted deployment
 - structured logging via LogTape (JSON Lines, `LOG_LEVEL` filtering, request correlation, debug file output)
 - Jira read-only ticket enrichment: key extraction from MR title/description, REST API fetch, ADF description parsing, acceptance-criteria custom-field support, graceful degradation when Jira is unavailable
+- `GITLAB_CA_FILE` TLS/custom-CA support: `buildGitEnv()` injects `GIT_SSL_CAINFO` into git spawns; `NODE_EXTRA_CA_CERTS` set at startup for the API client; deployment matrix and setup examples in GETTING_STARTED.md
 
 Planned next:
 
-- Phase 4.6 GitLab.com and self-hosted compatibility
 - Gandalf trigger and personality awakening for note-triggered reviews
 - Phase 5 production hardening (task queue, Kubernetes)
