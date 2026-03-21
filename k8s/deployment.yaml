@@ -1,0 +1,59 @@
+# Webhook server — receives GitLab webhook events and enqueues review jobs.
+# Scales independently from the worker (CPU-light, mostly I/O wait).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-gandalf-webhook
+  namespace: git-gandalf
+  labels:
+    app: git-gandalf-webhook
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: git-gandalf-webhook
+  template:
+    metadata:
+      labels:
+        app: git-gandalf-webhook
+    spec:
+      containers:
+        - name: webhook
+          image: git-gandalf:latest
+          imagePullPolicy: IfNotPresent
+          command: ["bun", "run", "src/index.ts"]
+          ports:
+            - containerPort: 8020
+              name: http
+          envFrom:
+            - configMapRef:
+                name: git-gandalf-config
+            - secretRef:
+                name: git-gandalf-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8020
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8020
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: repo-cache
+              mountPath: /tmp/repo_cache
+      volumes:
+        - name: repo-cache
+          emptyDir: {}

@@ -16,8 +16,18 @@ Concise reference for the architecture implemented in the current repo.
 - `src/context/repo-manager.ts`: shallow clone/update cache manager using native `git` through `Bun.spawn()`.
 - `src/context/tools/`: modular tool implementations and the public tool manifest consumed by Agent 2.
 - `src/agents/protocol.ts`: app-owned message, tool-call, tool-result, stop-reason, and tool-definition contract.
-- `src/agents/llm-client.ts`: adapter between the internal protocol and AWS Bedrock Runtime Converse.
+- `src/agents/provider-fallback.ts`: pure fallback orchestration. Exports `tryProvidersInOrder()` and `ProviderFn` type. No provider SDK imports.
+- `src/agents/llm-client.ts`: multi-provider fallback orchestrator. Resolves `LLM_PROVIDER_ORDER`, tries each provider via `tryProvidersInOrder()`, logs fallbacks. The single `chatCompletion()` function consumed by all agents.
+- `src/agents/providers/bedrock.ts`: AWS Bedrock Runtime Converse adapter.
+- `src/agents/providers/openai.ts`: OpenAI Chat Completions adapter.
+- `src/agents/providers/google.ts`: Google Gemini (GenerativeAI) adapter.
 - `src/agents/`: context agent, investigator loop, reflection agent, and the orchestrator.
+- `src/queue/connection.ts`: parses `VALKEY_URL` into BullMQ connection options (no standalone ioredis).
+- `src/queue/dead-letter.ts`: dead-letter queue factory and helpers for terminally failed review jobs.
+- `src/queue/review-queue.ts`: BullMQ Queue factory, `ReviewJobData` type and Zod schema, `buildReviewJobData()` helper.
+- `src/queue/review-worker-core.ts`: pure timeout-bound processor used by the worker and unit tests.
+- `src/queue/review-worker.ts`: BullMQ Worker factory — validates job data, enforces `REVIEW_JOB_TIMEOUT_MS`, calls `runPipeline()`, and moves terminal failures to the dead-letter queue.
+- `src/worker.ts`: worker process entrypoint. TLS bootstrap, graceful SIGTERM/SIGINT shutdown.
 - `src/publisher/gitlab-publisher.ts`: publishes verified findings as inline discussions when possible and always posts a summary note.
 
 ## Webhook Flow
@@ -30,7 +40,9 @@ Concise reference for the architecture implemented in the current repo.
 	- note events on `MergeRequest` whose text begins with `/ai-review`
 5. Router generates `requestId` via `Bun.randomUUIDv7()`.
 6. Router builds `ReviewTriggerContext` (`automatic` for MR events, `manual` for `/ai-review` notes).
-7. Router calls `runPipeline(event, trigger)` inside `withContext({ requestId })` without awaiting it.
+7. Dispatch branches on `QUEUE_ENABLED`:
+	- `true`: job added to BullMQ `review` queue via Valkey; a separate worker process picks it up and calls `runPipeline()`.
+	- `false` (default): `runPipeline(event, trigger)` called inline inside `withContext({ requestId })` without awaiting it (fire-and-forget; original behaviour).
 8. HTTP response returns immediately:
 	- `202 Accepted` for supported review triggers
 	- `200 Ignored` for valid but unsupported events
@@ -78,7 +90,8 @@ The pipeline is fully implemented and invoked from `src/api/pipeline.ts`.
 ### Internal protocol boundary
 
 - All agent state uses `src/agents/protocol.ts`, not provider SDK types.
-- `src/agents/llm-client.ts` is the only Bedrock-specific message translation layer.
+- `src/agents/llm-client.ts` is the only place that knows about provider names and the fallback ordering. Agents call `chatCompletion()` with no knowledge of which provider handles the request.
+- Provider adapters in `src/agents/providers/` translate the internal `AgentMessage[]` / `AgentResponse` contract to and from each SDK's native types.
 - Tool definitions are also internalized, so the investigator loop does not depend on provider SDK tool schemas.
 
 ### Tool-failure behavior
@@ -93,9 +106,9 @@ The pipeline is fully implemented and invoked from `src/api/pipeline.ts`.
 - Findings that cannot be anchored are skipped for inline publication but still contribute to the summary verdict.
 - A summary note is always posted with the final verdict.
 
-## Planned Next Boundaries
+## Deployment Targets
 
-- Phase 4.6: GitLab SaaS and self-hosted compatibility hardening
-- Phase 5+: queueing, Kubernetes, provider fallback
+- **Docker Compose**: `docker-compose.yml` runs `git-gandalf` (webhook), `worker`, and `valkey` services. Worker uses `stop_grace_period: 11m`.
+- **Kubernetes**: `k8s/` directory contains full manifests — `namespace`, `configmap`, `secret`, `deployment` (2 replicas), `worker-deployment` (1 replica, 660s `terminationGracePeriodSeconds`), `service` (ClusterIP), and `valkey` (dev/KinD only). `REVIEW_JOB_TIMEOUT_MS` is set in the ConfigMap for worker timeout control.
 
 For the fuller human walkthrough, see [`docs/humans/context/ARCHITECTURE.md`](../../humans/context/ARCHITECTURE.md).

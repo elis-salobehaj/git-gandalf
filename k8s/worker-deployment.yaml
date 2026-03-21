@@ -1,0 +1,47 @@
+# BullMQ worker — picks up review jobs from the queue and runs the agent pipeline.
+# Can be scaled independently from the webhook server.
+# Each replica handles WORKER_CONCURRENCY jobs simultaneously.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-gandalf-worker
+  namespace: git-gandalf
+  labels:
+    app: git-gandalf-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: git-gandalf-worker
+  template:
+    metadata:
+      labels:
+        app: git-gandalf-worker
+    spec:
+      containers:
+        - name: worker
+          image: git-gandalf:latest
+          imagePullPolicy: IfNotPresent
+          command: ["bun", "run", "src/worker.ts"]
+          envFrom:
+            - configMapRef:
+                name: git-gandalf-config
+            - secretRef:
+                name: git-gandalf-secrets
+          resources:
+            # Workers run LLM agents, tool loops, and git operations — allocate
+            # more CPU and memory than the lightweight webhook server.
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: repo-cache
+              mountPath: /tmp/repo_cache
+      volumes:
+        - name: repo-cache
+          emptyDir: {}
+      # Allow in-flight reviews to complete on SIGTERM before the pod is killed.
+      terminationGracePeriodSeconds: 660

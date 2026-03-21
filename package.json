@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "bun run --hot src/index.ts",
     "start": "bun run src/index.ts",
+    "worker": "bun run src/worker.ts",
+    "kind:up": "bash scripts/kind/up.sh",
+    "kind:down": "bash scripts/kind/down.sh",
+    "kind:port-forward": "bash scripts/kind/port-forward.sh",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",
@@ -23,9 +27,12 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "latest",
     "@gitbeaker/rest": "latest",
+    "@google/generative-ai": "^0.24.1",
     "@logtape/hono": "^2.0.4",
     "@logtape/logtape": "^2.0.4",
+    "bullmq": "^5.71.0",
     "hono": "^4.12.8",
+    "openai": "^6.32.0",
     "zod": "latest"
   }
 }

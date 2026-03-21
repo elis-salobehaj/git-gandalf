@@ -1,0 +1,23 @@
+# Non-sensitive configuration. Sensitive values (tokens, API keys) go in secret.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-gandalf-config
+  namespace: git-gandalf
+data:
+  GITLAB_URL: "https://gitlab.example.com"
+  AWS_REGION: "us-west-2"
+  AWS_AUTH_SCHEME_PREFERENCE: "smithy.api#httpBearerAuth"
+  LLM_MODEL: "global.anthropic.claude-sonnet-4-6"
+  LLM_PROVIDER_ORDER: "bedrock"
+  MAX_TOOL_ITERATIONS: "15"
+  MAX_SEARCH_RESULTS: "100"
+  REPO_CACHE_DIR: "/tmp/repo_cache"
+  LOG_LEVEL: "info"
+  PORT: "8020"
+  QUEUE_ENABLED: "true"
+  WORKER_CONCURRENCY: "2"
+  REVIEW_JOB_TIMEOUT_MS: "600000"
+  JIRA_ENABLED: "false"
+  OPENAI_MODEL: "gpt-4o"
+  GOOGLE_AI_MODEL: "gemini-1.5-pro"

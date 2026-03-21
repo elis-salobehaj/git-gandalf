@@ -8,9 +8,20 @@ import type { ReviewTriggerContext } from "../src/api/trigger";
 // ---------------------------------------------------------------------------
 const TEST_SECRET = "test-webhook-secret";
 const mockRunPipeline = mock(async (_event: unknown, _trigger: ReviewTriggerContext) => undefined);
+const mockQueueAdd = mock(async (_name: string, _data: unknown) => ({ id: "test-job-id" }));
 
 mock.module("../src/api/pipeline", () => ({
   runPipeline: mockRunPipeline,
+}));
+
+// Mock the queue module so createReviewQueue() returns a stub without connecting to Valkey.
+// Only the symbols imported by router.ts and queue.test.ts are included.
+// reviewJobDataSchema is omitted intentionally — queue.test.ts imports it directly from
+// src/queue/job-schemas.ts to avoid this mock interfering with schema validation tests.
+mock.module("../src/queue/review-queue", () => ({
+  REVIEW_QUEUE_NAME: "review",
+  createReviewQueue: () => ({ add: mockQueueAdd }),
+  buildReviewJobData: (event: unknown, trigger: unknown, requestId: string) => ({ event, trigger, requestId }),
 }));
 
 const { default: app } = await import("../src/index");
@@ -39,6 +50,8 @@ const noteEvent = await Bun.file("tests/fixtures/sample_note_event.json").json()
 beforeEach(() => {
   mockRunPipeline.mockReset();
   mockRunPipeline.mockResolvedValue(undefined);
+  mockQueueAdd.mockReset();
+  mockQueueAdd.mockResolvedValue({ id: "test-job-id" });
 });
 
 // ---------------------------------------------------------------------------
@@ -269,5 +282,54 @@ describe("POST /api/v1/webhooks/gitlab — trigger context", () => {
       mode: "automatic",
       source: "merge_request_event",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Webhook — queue dispatch (QUEUE_ENABLED=true)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/v1/webhooks/gitlab — queue dispatch", () => {
+  it("enqueues a review job via BullMQ and returns 202 when QUEUE_ENABLED=true", async () => {
+    const { config } = await import("../src/config");
+    const originalEnabled = config.QUEUE_ENABLED;
+    // biome-ignore lint/suspicious/noExplicitAny: intentional test override
+    (config as any).QUEUE_ENABLED = true;
+
+    try {
+      const res = await app.fetch(makeRequest(mrOpenEvent));
+
+      expect(res.status).toBe(202);
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+
+      const [jobName, jobData] = mockQueueAdd.mock.calls[0] as [string, { requestId: string }];
+      expect(jobName).toBe("review");
+      expect(typeof jobData.requestId).toBe("string");
+      expect(jobData.requestId.length).toBeGreaterThan(0);
+
+      // runPipeline must NOT be called; the worker handles it asynchronously
+      expect(mockRunPipeline).not.toHaveBeenCalled();
+    } finally {
+      // biome-ignore lint/suspicious/noExplicitAny: intentional test override
+      (config as any).QUEUE_ENABLED = originalEnabled;
+    }
+  });
+
+  it("returns 503 when the queue.add() call rejects", async () => {
+    const { config } = await import("../src/config");
+    const originalEnabled = config.QUEUE_ENABLED;
+    // biome-ignore lint/suspicious/noExplicitAny: intentional test override
+    (config as any).QUEUE_ENABLED = true;
+    mockQueueAdd.mockRejectedValueOnce(new Error("Valkey unavailable"));
+
+    try {
+      const res = await app.fetch(makeRequest(mrOpenEvent));
+      expect(res.status).toBe(503);
+      expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+      expect(mockRunPipeline).not.toHaveBeenCalled();
+    } finally {
+      // biome-ignore lint/suspicious/noExplicitAny: intentional test override
+      (config as any).QUEUE_ENABLED = originalEnabled;
+    }
   });
 });

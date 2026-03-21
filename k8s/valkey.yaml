@@ -1,0 +1,54 @@
+# Single-instance Valkey (Redis-compatible) for local KinD / dev cluster use.
+# For production, replace with a managed Redis/Valkey service or a HA operator
+# such as redis-operator or Spotahome's redis-operator.
+#
+# Data persistence is intentionally omitted here: BullMQ jobs that survive a
+# Valkey restart are returned to the queue via BullMQ's stall checker, so
+# in-flight jobs are retried automatically. Completed/failed job history is
+# lost on restart (acceptable for observability; not for audit requirements).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey
+  namespace: git-gandalf
+  labels:
+    app: valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: valkey
+  template:
+    metadata:
+      labels:
+        app: valkey
+    spec:
+      containers:
+        - name: valkey
+          image: valkey/valkey:8-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey
+  namespace: git-gandalf
+  labels:
+    app: valkey
+spec:
+  selector:
+    app: valkey
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+  type: ClusterIP

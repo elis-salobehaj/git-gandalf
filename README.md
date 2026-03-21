@@ -1,81 +1,55 @@
 # GitGandalf
 
-GitGandalf is a self-hosted GitLab merge request review service. It accepts MR and `/ai-review` webhooks, clones the target repository into a local cache, runs a three-agent review pipeline against the diff and repository context, and publishes verified findings back to GitLab.
+> AI-assisted, agentic code reviewer for GitLab merge requests.
 
-The current implementation is live end to end:
+![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
+![Runtime](https://img.shields.io/badge/runtime-Bun-111111.svg)
+![Language](https://img.shields.io/badge/language-TypeScript-3178C6.svg)
+![Deployment](https://img.shields.io/badge/deployment-Docker%20%7C%20KinD%20%7C%20Kubernetes-326CE5.svg)
 
-- webhook ingestion and filtering
-- typed GitLab API access
-- shallow repo caching with host validation
-- modular repository tools for Agent 2
-- internal GitGandalf agent protocol
-- AWS Bedrock Runtime Converse adapter
-- inline discussion and summary-note publishing
-- structured JSON logging with request correlation
+![GitGandalf Review Summary](docs/images/readme/git-gandalf-review-summary.png)
 
-## Review Flow
+GitGandalf is a self-hosted review service that listens to GitLab merge request events,
+runs an agentic code-review pipeline against the diff and repository context, and posts
+high-signal inline comments back to the MR.
 
-```text
-GitLab webhook -> router validation -> pipeline -> Jira enrichment -> agents -> GitLab comments
-```
+It is built for teams that want code review automation without giving up control of their
+runtime, provider stack, or deployment model.
 
-1. GitLab sends a `merge_request` event or a `note` event beginning with `/ai-review`.
-2. The router verifies `X-Gitlab-Token`, validates the required webhook fields with Zod, and returns `202 Accepted` immediately for supported events.
-3. The pipeline fetches MR metadata and diffs, then clones or updates the source branch in the repo cache.
-4. The pipeline extracts Jira ticket keys from the MR title and description (e.g. `SRT-28326:` prefix), fetches those tickets from the Jira REST API, and attaches them to the review state. This step degrades safely when Jira is disabled or unavailable.
-5. Agent 1 maps intent and risk areas, incorporating linked Jira ticket context when present.
-6. Agent 2 investigates with `read_file`, `search_codebase`, and `get_directory_structure`.
-7. Agent 3 filters weak findings, decides the verdict, and hands verified findings to the publisher.
-8. The publisher creates inline discussions when a finding can be anchored to the diff and always posts a summary note.
+---
 
-## Prerequisites
+## Table of Contents
 
-- [Bun](https://bun.sh) 1.3+
-- [Git](https://git-scm.com/)
-- [ripgrep](https://github.com/BurntSushi/ripgrep) for repository search tools
-- [Docker](https://docs.docker.com/get-docker/) with Compose plugin for containerized deployment
-- GitLab access with a token that has `api` scope
-- AWS Bedrock access for Claude Sonnet 4 through the Bedrock Runtime Converse API
+- [Quick Start](#quick-start)
+- [Features](#features)
+- [Showcase](#showcase)
+- [Review Flow](#review-flow)
+- [Deployment Modes](#deployment-modes)
+- [Tech Stack](#tech-stack)
+- [Configuration](#configuration)
+- [Local Kubernetes](#local-kubernetes)
+- [Webhook Setup](#webhook-setup)
+- [Runtime Notes](#runtime-notes)
+- [Documentation Hub](#documentation-hub)
+- [Development Commands](#development-commands)
 
-## Configuration
+---
 
-Copy `.env.example` to `.env` and set the required values.
+## Quick Start
 
 ```bash
+# Configure the app
 cp .env.example .env
-```
 
-| Variable | Description |
-|---|---|
-| `GITLAB_URL` | Base URL of the GitLab instance, for example `https://gitlab.example.com` |
-| `GITLAB_TOKEN` | GitLab token used for API calls and authenticated clone/fetch operations |
-| `GITLAB_WEBHOOK_SECRET` | Shared secret checked against `X-Gitlab-Token` |
-| `AWS_REGION` | AWS region used by the Bedrock Runtime client |
-| `AWS_BEARER_TOKEN_BEDROCK` | Bearer token for Bedrock Runtime auth |
-| `AWS_AUTH_SCHEME_PREFERENCE` | Keep this quoted as `'smithy.api#httpBearerAuth'` in dotenv files |
-| `LLM_MODEL` | Bedrock model ID passed to Converse |
-| `MAX_TOOL_ITERATIONS` | Maximum Agent 2 tool-call rounds |
-| `MAX_SEARCH_RESULTS` | Maximum `search_codebase` hits returned to the model |
-| `REPO_CACHE_DIR` | Root directory for shallow repo clones |
-| `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
-| `PORT` | HTTP port, default `8020` |
-| `JIRA_ENABLED` | Set to `true` to activate Jira ticket enrichment. Default `false` |
-| `JIRA_BASE_URL` | Jira Cloud base URL, for example `https://your-company.atlassian.net` |
-| `JIRA_EMAIL` | Email associated with the Jira API token |
-| `JIRA_API_TOKEN` | Atlassian API token (generate at `https://id.atlassian.com/manage-profile/security/api-tokens`). Must be a single unbroken line in `.env` |
-| `JIRA_PROJECT_KEYS` | Optional comma-separated allow-list of project keys, e.g. `SRT,ENG`. When unset, all extracted keys are fetched |
-| `JIRA_ACCEPTANCE_CRITERIA_FIELD_ID` | Optional custom-field ID for acceptance-criteria content, e.g. `customfield_12345` |
-| `JIRA_MAX_TICKETS` | Maximum tickets fetched per review run. Default `5` |
-| `JIRA_TICKET_TIMEOUT_MS` | Per-ticket HTTP fetch timeout in milliseconds. Default `5000` |
-
-## Local Run
-
-```bash
+# Install dependencies
 bun install
-bun run dev
-```
 
-The app listens on `http://localhost:8020` by default.
+# Run the webhook server
+bun run dev
+
+# Optional: run the worker when QUEUE_ENABLED=true
+bun run worker
+```
 
 Health check:
 
@@ -83,19 +57,175 @@ Health check:
 curl http://127.0.0.1:8020/api/v1/health
 ```
 
+For local Kubernetes validation:
+
+```bash
+bun run kind:up
+bun run kind:port-forward
+bun run kind:down
+```
+
+---
+
+## Features
+
+- 🤖 **Agentic review pipeline** — context agent, investigator loop, and reflection agent work together before anything is published.
+- 🛠️ **Repo-aware tools** — the investigator can read files, search the codebase, and inspect directory structure inside a sandboxed repo clone.
+- 🧠 **Multi-provider LLM fallback** — AWS Bedrock first, with optional OpenAI and Google Gemini fallback ordering.
+- 📨 **GitLab-native feedback** — publishes inline MR discussions when findings can be anchored and always posts a summary note.
+- 🧵 **Queued review execution** — BullMQ + Valkey decouple webhook ingestion from long-running review jobs.
+- ⏱️ **Timeout and dead-letter handling** — bounded worker attempts with retry policy and terminal-failure routing to `review-dead-letter`.
+- ☸️ **Kubernetes-ready** — raw manifests for webhook, worker, service, config, secrets, and local Valkey validation on KinD.
+- 🔎 **Jira enrichment** — optionally pulls linked Jira ticket context from MR title and description.
+- 📜 **Structured logging** — LogTape JSON logs with request correlation, pipeline context, and debug-file output.
+
+---
+
+## Showcase
+
+### Review Surface
+
+| Inline Finding 1 | Inline Finding 2 |
+|---|---|
+| ![Inline Review Comment 1](docs/images/readme/git-gandalf-comment-1.png) | ![Inline Review Comment 2](docs/images/readme/git-gandalf-comment-2.png) |
+| High-signal code review comment with concrete impact and a suggested diff. | Diff-anchored YAML issue surfaced directly in the merge request discussion. |
+
+| Inline Finding 3 | Review Summary |
+|---|---|
+| ![Inline Review Comment 3](docs/images/readme/git-gandalf-comment-3.png) | ![GitGandalf Review Summary](docs/images/readme/git-gandalf-review-summary.png) |
+| Shell-script defect caught with exact line targeting and actionable reasoning. | Final verdict summary with severity counts and linked findings back into the MR. |
+
+---
+
+## Review Flow
+
+```text
+GitLab webhook -> router -> queue or inline dispatch -> pipeline -> Jira enrichment -> agents -> GitLab comments
+```
+
+1. GitLab sends a `merge_request` event or a `/ai-review` note event.
+2. The router verifies `X-Gitlab-Token` and validates the webhook payload with Zod.
+3. The request is either queued through BullMQ or run inline, depending on `QUEUE_ENABLED`.
+4. The pipeline fetches MR metadata and diffs, then clones or updates the repo cache.
+5. Optional Jira enrichment adds linked ticket context.
+6. The agent pipeline investigates the change and filters weak or unsupported findings.
+7. Verified findings are published back to GitLab as inline discussions and a summary note.
+
+---
+
+## Deployment Modes
+
+| Mode | Use Case | Command / Entry |
+|---|---|---|
+| **Inline** | simplest local/dev flow | `bun run dev` |
+| **Queued** | durable async review execution | `bun run dev` + `bun run worker` |
+| **Docker Compose** | containerized local or server deployment | `docker compose up` |
+| **KinD / Kubernetes** | local cluster validation and k8s parity | `bun run kind:up` |
+
+When `QUEUE_ENABLED=true`, the webhook returns `202` only after BullMQ accepts the job.
+If enqueue fails, the webhook returns `503` instead of silently dropping work.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Runtime** | Bun |
+| **API** | Hono |
+| **Language** | TypeScript (strict mode) |
+| **Validation** | Zod |
+| **Queue** | BullMQ + Valkey |
+| **LLMs** | AWS Bedrock, OpenAI, Google Gemini |
+| **GitLab Client** | `@gitbeaker/rest` |
+| **Logging** | LogTape |
+| **Infra** | Docker Compose, KinD, Kubernetes |
+
+---
+
+## Configuration
+
+All configuration lives in the root `.env` file.
+
+```bash
+cp .env.example .env
+```
+
+### Core
+
+| Variable | Description |
+|---|---|
+| `GITLAB_URL` | Base URL of the GitLab instance |
+| `GITLAB_TOKEN` | Token used for API calls and authenticated clone/fetch operations |
+| `GITLAB_WEBHOOK_SECRET` | Shared secret checked against `X-Gitlab-Token` |
+| `PORT` | HTTP port, default `8020` |
+| `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` |
+
+### Queueing
+
+| Variable | Description |
+|---|---|
+| `QUEUE_ENABLED` | Enable BullMQ dispatch instead of inline fire-and-forget execution |
+| `VALKEY_URL` | Valkey or Redis connection URL |
+| `WORKER_CONCURRENCY` | Concurrent review jobs per worker |
+| `REVIEW_JOB_TIMEOUT_MS` | Hard timeout per worker attempt |
+
+### LLM Providers
+
+| Variable | Description |
+|---|---|
+| `LLM_PROVIDER_ORDER` | Ordered provider list, e.g. `bedrock,openai` |
+| `LLM_MODEL` | Bedrock model ID |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | OpenAI fallback configuration |
+| `GOOGLE_AI_API_KEY` / `GOOGLE_AI_MODEL` | Gemini fallback configuration |
+
+### Jira Enrichment
+
+| Variable | Description |
+|---|---|
+| `JIRA_ENABLED` | Enables Jira ticket enrichment |
+| `JIRA_BASE_URL` | Jira Cloud base URL |
+| `JIRA_EMAIL` / `JIRA_API_TOKEN` | Jira API credentials |
+| `JIRA_PROJECT_KEYS` | Optional project-key allow-list |
+| `JIRA_ACCEPTANCE_CRITERIA_FIELD_ID` | Optional acceptance-criteria custom field |
+
+Full configuration reference: [docs/guides/GETTING_STARTED.md](docs/guides/GETTING_STARTED.md) and [docs/agents/context/CONFIGURATION.md](docs/agents/context/CONFIGURATION.md)
+
+---
+
+## Local Kubernetes
+
+GitGandalf includes helper scripts for local KinD validation.
+
+What the bootstrap does:
+
+- creates the KinD cluster if it does not exist
+- builds the local Docker image and loads it into the cluster
+- generates ConfigMap and Secret resources from your local `.env`
+- deploys Valkey, webhook, worker, and service manifests
+- waits for rollouts to complete
+
+Commands:
+
+```bash
+bun run kind:up
+bun run kind:port-forward
+bun run kind:down
+```
+
+The port-forward exposes the webhook service locally at `http://127.0.0.1:8020`.
+
+---
+
 ## Webhook Setup
 
-For project-level setup:
-
-1. Go to GitLab -> Settings -> Webhooks.
-2. Set the URL to `http://<reachable-host>:8020/api/v1/webhooks/gitlab`.
+1. In GitLab, go to `Settings -> Webhooks`.
+2. Set the webhook URL to `http://<reachable-host>:8020/api/v1/webhooks/gitlab`.
 3. Set the secret token to `GITLAB_WEBHOOK_SECRET`.
 4. Enable merge request events.
 5. Enable note/comment events if you want `/ai-review` manual triggers.
 
-For self-managed instance-wide automatic coverage, a system hook is valid for merge request events, but `/ai-review` note triggers still require project-level or group-level note events.
-
-If GitLab cannot reach your workstation directly, use an SSH reverse tunnel for early testing:
+If GitLab cannot reach your workstation directly, use an SSH reverse tunnel:
 
 ```bash
 ssh -N -R 127.0.0.1:8020:localhost:8020 gitlab-user@gitlab.example.com
@@ -103,16 +233,31 @@ ssh -N -R 127.0.0.1:8020:localhost:8020 gitlab-user@gitlab.example.com
 
 Use `ssh -R`, not `ssh -L`, when the goal is to expose your local GitGandalf process to the remote side.
 
+---
+
 ## Runtime Notes
 
-- Webhook schemas are permissive about extra GitLab keys but strict about the fields GitGandalf actually uses.
-- Bedrock-specific message translation is isolated in `src/agents/llm-client.ts`.
-- Individual Agent 2 tool failures are returned to the model as error `tool_result` blocks instead of crashing the whole review.
+- Webhook schemas are permissive about extra GitLab keys but strict about required fields.
+- Provider-specific translation stays isolated behind the internal protocol boundary in `src/agents/llm-client.ts` and `src/agents/providers/`.
+- Review jobs use exponential backoff, enforce `REVIEW_JOB_TIMEOUT_MS`, and copy terminal failures into the `review-dead-letter` queue.
+- Individual Agent 2 tool failures are returned to the model as error `tool_result` blocks instead of aborting the full review.
 - Findings that cannot be anchored to the diff are skipped for inline publication and preserved in the summary verdict flow.
 - When `LOG_LEVEL=debug`, logs are also written to `logs/gg-dev.log`.
-- Jira ticket keys are extracted from the MR title and description using the pattern `[A-Z][A-Z0-9]+-\d+`. MR titles that begin with a ticket key followed by a colon (e.g. `SRT-28326: refactor auth layer`) are automatically detected. All Jira errors are logged as warnings and never abort a review.
-- `JIRA_API_TOKEN` must be pasted as a single unbroken line in `.env`. A token split across lines will be read as two separate values and authentication will fail with `401`.
-- When `JIRA_ENABLED=false` (the default), no Jira calls are made and `linkedTickets` is always an empty array.
+- Jira errors degrade safely: they are logged as warnings and never abort a review.
+
+---
+
+## Documentation Hub
+
+| Guide | Description |
+|---|---|
+| [docs/README.md](docs/README.md) | Main documentation index and phase status |
+| [docs/guides/GETTING_STARTED.md](docs/guides/GETTING_STARTED.md) | Setup, env config, queueing, provider fallback, and KinD bootstrap |
+| [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md) | Bun commands, testing strategy, and development workflow |
+| [docs/agents/context/ARCHITECTURE.md](docs/agents/context/ARCHITECTURE.md) | Concise implementation architecture |
+| [docs/humans/context/ARCHITECTURE.md](docs/humans/context/ARCHITECTURE.md) | Expanded architecture walkthrough |
+
+---
 
 ## Development Commands
 
@@ -122,14 +267,6 @@ bun run typecheck
 bun run check
 bun run ci
 ```
-
-## Documentation
-
-- Main documentation index: [docs/README.md](docs/README.md)
-- Human architecture guide: [docs/humans/context/ARCHITECTURE.md](docs/humans/context/ARCHITECTURE.md)
-- Agent architecture reference: [docs/agents/context/ARCHITECTURE.md](docs/agents/context/ARCHITECTURE.md)
-- Setup guide: [docs/guides/GETTING_STARTED.md](docs/guides/GETTING_STARTED.md)
-- Development workflow guide: [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md)
 
 ## License
 

@@ -6,7 +6,37 @@ services:
       - "${PORT:-8020}:${PORT:-8020}"
     volumes:
       - repo-cache:/tmp/repo_cache
+    depends_on:
+      valkey:
+        condition: service_healthy
     restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["bun", "run", "src/worker.ts"]
+    env_file: .env
+    volumes:
+      - repo-cache:/tmp/repo_cache
+    depends_on:
+      valkey:
+        condition: service_healthy
+    restart: unless-stopped
+    # Allow in-flight reviews to complete before the container is killed.
+    stop_grace_period: 11m
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   repo-cache:
+  valkey-data:

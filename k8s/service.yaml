@@ -1,0 +1,17 @@
+# ClusterIP service for the webhook server.
+# Expose externally via an Ingress or LoadBalancer on top of this Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: git-gandalf
+  namespace: git-gandalf
+  labels:
+    app: git-gandalf-webhook
+spec:
+  selector:
+    app: git-gandalf-webhook
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8020
+  type: ClusterIP

@@ -21,7 +21,9 @@ Implemented in `src/api/router.ts`.
    - merge request events → `mode: "automatic"`, `source: "merge_request_event"`
    - `/ai-review` note events → `mode: "manual"`, `source: "mr_note_command"`, plus `noteId` and `rawCommand`
 6. generate `requestId` via `Bun.randomUUIDv7()` and propagate via LogTape `withContext()`
-7. call `runPipeline(event, trigger)` without awaiting
+7. dispatch on `QUEUE_ENABLED`:
+   - `true`: add job to BullMQ `review` queue; a worker process calls `runPipeline()` asynchronously
+   - `false` (default): call `runPipeline(event, trigger)` without awaiting (fire-and-forget, original behaviour)
 8. return `202 Accepted`
 
 HTTP request/response logging is handled automatically by `@logtape/hono` middleware and emits structured JSON Lines to stdout. Health check requests are excluded from logging.
@@ -70,6 +72,8 @@ The pipeline receives a `ReviewTriggerContext` from the router which is threaded
 Automatic MR triggers now perform an early same-head guard after `getMRDetails()`: if an existing GitGandalf summary note already embeds the current `headSha`, the pipeline logs the skip and returns before fetching diffs, cloning the repo, or invoking agents. Manual `/ai-review` triggers bypass this guard and always run.
 All pipeline logs emit structured JSON under `["gandalf", "pipeline"]` and carry the implicit `requestId`, `projectId`, and `mrIid` context set by the router and pipeline entry.
 
+When queue mode is enabled, each worker attempt is bounded by `REVIEW_JOB_TIMEOUT_MS`. If an attempt exceeds that boundary, the worker fails the attempt, BullMQ retries according to the queue policy, and terminal failures are copied into the `review-dead-letter` queue for operator inspection.
+
 ## 4a. Jira Ticket Enrichment
 
 Implemented in `src/integrations/jira/client.ts`. Called from `src/api/pipeline.ts` between repo clone and agent invocation.
@@ -105,7 +109,7 @@ Implemented in `src/agents/`.
 
 1. caller provides `ReviewState` input fields: `mrDetails`, `diffFiles`, `repoPath`, `linkedTickets`
 2. `contextAgent()` derives `mrIntent`, `changeCategories`, and `riskAreas`; uses `linkedTickets` when non-empty
-3. `investigatorLoop()` builds the investigation prompt and calls Bedrock Runtime Converse through the internal protocol adapter
+3. `investigatorLoop()` builds the investigation prompt and calls `chatCompletion()`, which iterates `LLM_PROVIDER_ORDER` via `tryProvidersInOrder()` — trying each provider until one succeeds or all fail
 4. tool requests are executed through `executeTool()` using `TOOL_DEFINITIONS`
 5. `reflectionAgent()` filters the raw findings and assigns a verdict
 6. `orchestrator.ts` allows one reinvestigation round when `needsReinvestigation` is true

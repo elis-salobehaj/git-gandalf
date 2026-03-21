@@ -25,6 +25,15 @@ Compact reference for all environment variables accepted by `src/config.ts`.
 | `JIRA_MAX_TICKETS` | no | positive integer | `5` | Maximum ticket fetches per pipeline run. Caps blast radius when many keys appear in the MR. |
 | `JIRA_TICKET_TIMEOUT_MS` | no | positive integer | `5000` | Per-ticket HTTP timeout in milliseconds. Each `fetchJiraTicket()` call uses an `AbortController` to enforce this limit. |
 | `GITLAB_CA_FILE` | no | file path string | none | Path to a PEM-encoded CA bundle for self-hosted GitLab instances that use a privately-signed certificate (internal / enterprise CA). When set, injected as `GIT_SSL_CAINFO` into every git subprocess (clone, fetch) and set as `NODE_EXTRA_CA_CERTS` at startup so `@gitbeaker/rest` API calls also trust the custom root. |
+| `QUEUE_ENABLED` | no | boolean string | `false` | Set to `"true"` to dispatch MR reviews via the BullMQ task queue. When `false`, reviews run fire-and-forget inline in the webhook process (original behaviour). Requires a running Valkey/Redis instance and a worker process when `true`. |
+| `VALKEY_URL` | no | URL string | `redis://localhost:6379` | Connection URL for the Valkey (or Redis-compatible) instance backing the BullMQ queue. Parsed at runtime into `{ host, port }` options — no standalone `ioredis` package needed. |
+| `WORKER_CONCURRENCY` | no | positive integer | `2` | Number of concurrent review jobs each worker process handles. Tune based on available memory and LLM rate limits. |
+| `REVIEW_JOB_TIMEOUT_MS` | no | positive integer | `600000` | Hard timeout per review-job attempt in the worker, in milliseconds. When exceeded, the attempt fails with a timeout error and BullMQ retry/dead-letter logic takes over. |
+| `LLM_PROVIDER_ORDER` | no | comma-separated string | `bedrock` | Ordered list of LLM provider names to attempt. Supported values: `bedrock`, `openai`, `google`. On failure, the next provider is tried. E.g. `bedrock,openai` uses OpenAI as an automatic fallback. |
+| `OPENAI_API_KEY` | no | string | none | OpenAI API key. Required when `openai` appears in `LLM_PROVIDER_ORDER`. |
+| `OPENAI_MODEL` | no | string | `gpt-4o` | OpenAI model ID to use for chat completions. |
+| `GOOGLE_AI_API_KEY` | no | string | none | Google AI (Gemini) API key. Required when `google` appears in `LLM_PROVIDER_ORDER`. |
+| `GOOGLE_AI_MODEL` | no | string | `gemini-1.5-pro` | Gemini model ID to use for chat completions. |
 
 ## Validation Rules
 

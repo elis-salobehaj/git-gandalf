@@ -1,11 +1,27 @@
+import type { Queue } from "bullmq";
 import { Hono } from "hono";
 import { config } from "../config";
 import { getLogger, withContext } from "../logger";
+import type { ReviewJobData } from "../queue/review-queue";
+import { buildReviewJobData, createReviewQueue } from "../queue/review-queue";
 import { runPipeline } from "./pipeline";
 import { type WebhookPayload, webhookPayloadSchema } from "./schemas";
 import type { ReviewTriggerContext } from "./trigger";
 
 const logger = getLogger(["gandalf", "router"]);
+
+// ---------------------------------------------------------------------------
+// Lazy-initialised BullMQ queue — only created when QUEUE_ENABLED=true so
+// the webhook server never connects to Valkey in fire-and-forget mode.
+// ---------------------------------------------------------------------------
+let _reviewQueue: Queue<ReviewJobData> | null = null;
+
+function getReviewQueue(): Queue<ReviewJobData> {
+  if (!_reviewQueue) {
+    _reviewQueue = createReviewQueue();
+  }
+  return _reviewQueue;
+}
 
 export const apiRouter = new Hono();
 
@@ -69,13 +85,31 @@ apiRouter.post("/webhooks/gitlab", async (c) => {
           source: "merge_request_event",
         };
 
-  // 5. Fire-and-forget — return 202 immediately
+  // 5. Dispatch: enqueue via BullMQ when queue is enabled, otherwise run
+  //    fire-and-forget (original behaviour preserved for non-queue deployments).
   const requestId = Bun.randomUUIDv7();
-  withContext({ requestId }, () => {
-    runPipeline(event, trigger).catch((err: unknown) => {
-      logger.error("Unhandled pipeline error", { error: err instanceof Error ? err.message : String(err) });
+
+  if (config.QUEUE_ENABLED) {
+    // Enqueue — only acknowledge the webhook after BullMQ accepted the job.
+    const jobData = buildReviewJobData(event, trigger, requestId);
+    try {
+      const job = await getReviewQueue().add("review", jobData);
+      logger.info("Review job enqueued", { requestId, jobId: job.id });
+    } catch (err: unknown) {
+      logger.error("Failed to enqueue review job", {
+        requestId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return c.text("Queue unavailable", 503);
+    }
+  } else {
+    // Fire-and-forget (original behaviour)
+    withContext({ requestId }, () => {
+      runPipeline(event, trigger).catch((err: unknown) => {
+        logger.error("Unhandled pipeline error", { error: err instanceof Error ? err.message : String(err) });
+      });
     });
-  });
+  }
 
   return c.text("Accepted", 202);
 });

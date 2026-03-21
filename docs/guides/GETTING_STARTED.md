@@ -259,6 +259,128 @@ If Bedrock auth is misconfigured, the webhook can still return `202 Accepted` be
 review runs in the background, but the pipeline will later fail in `logs/gg-dev.log` with
 credential or authorization errors.
 
+## LLM provider fallback (Phase 5.3)
+
+By default, GitGandalf uses AWS Bedrock as the sole LLM provider. You can configure
+additional providers as automatic fallbacks: if Bedrock is unavailable (rate-limited,
+service disruption, or credential error), GitGandalf retries automatically with the next
+provider in the list without dropping the review.
+
+### Environment variables
+
+```env
+# Comma-separated, tried left-to-right. Supported: bedrock, openai, google.
+LLM_PROVIDER_ORDER=bedrock,openai
+
+# OpenAI (required when "openai" is in LLM_PROVIDER_ORDER)
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o   # optional, this is the default
+
+# Google Gemini (required when "google" is in LLM_PROVIDER_ORDER)
+GOOGLE_AI_API_KEY=AIza...
+GOOGLE_AI_MODEL=gemini-1.5-pro   # optional, this is the default
+```
+
+### How fallback works
+
+Each provider is attempted in the order listed. If a provider call throws (any error), the
+error is logged as a warning and the next provider is tried immediately. The review
+continues with the first provider that succeeds. If all providers fail, the pipeline error
+is propagated and the MR review fails.
+
+To use only a single non-Bedrock provider, set `LLM_PROVIDER_ORDER` to just that provider:
+
+```env
+LLM_PROVIDER_ORDER=openai
+```
+
+Bedrock credentials are then not required.
+
+## Task queue setup (Phase 5.1)
+
+By default, GitGandalf runs in fire-and-forget mode: the webhook handler dispatches the
+review pipeline in the background without a queue. This mode requires no additional
+infrastructure.
+
+For production deployments where you want durability, retries, and separate scaling for
+the webhook server and the review worker, enable the BullMQ task queue backed by Valkey
+(a Redis-compatible key-value store).
+
+### Environment variables
+
+```env
+QUEUE_ENABLED=true
+VALKEY_URL=redis://localhost:6379
+WORKER_CONCURRENCY=2   # concurrent review jobs per worker process
+REVIEW_JOB_TIMEOUT_MS=600000   # 10 minutes per attempt
+```
+
+### Starting the worker
+
+When `QUEUE_ENABLED=true`, you must run a separate worker process that picks up jobs from
+the queue and executes the review pipeline. In a terminal alongside the webhook server:
+
+```bash
+bun run worker
+```
+
+If `QUEUE_ENABLED=false` and you start the worker anyway, it will log a warning and continue
+running but no jobs will arrive.
+
+### Docker Compose with queue enabled
+
+The `docker-compose.yml` already includes `valkey` and `worker` services. Start the full
+stack with:
+
+```bash
+docker-compose up
+```
+
+The `worker` service uses an 11-minute `stop_grace_period` so an in-flight review (which
+can take up to 10 minutes) is not interrupted on `docker-compose down`.
+
+### Local KinD bootstrap
+
+For local Kubernetes validation, GitGandalf includes helper scripts that create a KinD
+cluster, build and load the local image, generate the ConfigMap and Secret from your local
+`.env`, deploy the manifests, and wait for the webhook, worker, and Valkey rollouts.
+
+Prerequisites:
+
+- `docker`
+- `kind`
+- `kubectl`
+- a populated local `.env`
+
+Commands:
+
+```bash
+bun run kind:up
+bun run kind:port-forward
+bun run kind:down
+```
+
+`bun run kind:port-forward` exposes the webhook service on `http://127.0.0.1:8020`, so the
+same health check and webhook URL can be used locally:
+
+```bash
+curl http://127.0.0.1:8020/api/v1/health
+```
+
+If your GitLab instance uses a private CA and `GITLAB_CA_FILE` is set in `.env`, the KinD
+bootstrap path also creates a CA-bundle Secret and mounts it into both the webhook and worker
+Deployments.
+
+### Job lifecycle
+
+Each review job is attempted up to three times with exponential backoff (5s → 10s → 20s).
+Each attempt is bounded by `REVIEW_JOB_TIMEOUT_MS`; when the timeout is exceeded, the attempt
+fails and BullMQ retry logic takes over. After the final failed attempt, the worker copies the
+job payload plus failure metadata into the `review-dead-letter` queue for post-mortem analysis.
+Completed jobs are retained for observability (last 100). Failed jobs are retained for
+post-mortem inspection (last 200). You can inspect the queue state using
+[BullMQ Board](https://github.com/felixmosh/bull-board) or any Redis/Valkey client.
+
 ## GitLab deployment compatibility
 
 GitGandalf works with both GitLab.com and self-hosted GitLab (GitLab Self-Managed and GitLab Dedicated) without any deployment-mode flag. The supported auth and URL combinations are documented below.

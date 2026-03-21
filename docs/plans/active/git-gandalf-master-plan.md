@@ -91,11 +91,12 @@ completion:
   - [x] Remediation complete — see `docs/plans/review-reports/phase-4.6-review-2026-03-20-r7n1.md`
   - [x] Re-review remediation complete — see `docs/plans/review-reports/phase-4.6-review-2026-03-20-w2k5.md`
   - "# Phase 5 — Production Hardening (Future)"
-  - [ ] 5.1 Task Queue (BullMQ + Valkey)
-  - [ ] 5.2 Kubernetes (KinD / EKS / GKE)
-  - [ ] 5.3 LLM Fallback (OpenAI / Google)
+  - [x] 5.1 Task Queue (BullMQ + Valkey)
+  - [x] 5.2 Kubernetes (KinD / EKS / GKE)
+  - [x] 5.3 LLM Fallback (OpenAI / Google)
   - [x] 5.4 Internal LLM Contract (provider-agnostic agent schema)
-  - [ ] 5.5 Optional Adapter Evaluation (Vercel AI SDK or direct SDKs)
+  - [ ] 5.5 Optional Adapter Evaluation (Vercel AI SDK or direct SDKs) (DEFERRED - don't implement)
+  - [x] Re-review remediation complete — see `docs/plans/review-reports/phase-5-review-2026-03-20-fq03.md`
   - "# Phase 6 — Jira Write Actions (Deferred)"
   - [ ] 6.1 Explicitly design Jira write permissions and least-privilege auth
   - [ ] 6.2 Add write-mode workflows only after review of security and product scope
